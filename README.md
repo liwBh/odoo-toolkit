@@ -44,6 +44,19 @@ ln -s ../odoo-toolkit/scripts scripts
 
 Ajustar la ruta relativa (`../odoo-toolkit`) según dónde esté el proyecto respecto a este repo.
 
+### Alternativa: copia manual (recomendada para equipo)
+
+El symlink asume que ambos repos están clonados en la misma ruta relativa — se rompe si otro dev clona en otra ubicación, o en Windows/CI/Docker. Para distribuir a un equipo, es más simple copiar los archivos (sin symlink):
+
+```bash
+git clone git@github.com:liwBh/odoo-toolkit.git
+cp odoo-toolkit/Makefile /ruta/al/proyecto-odoo/Makefile
+cp odoo-toolkit/Apuntes.md /ruta/al/proyecto-odoo/Apuntes.md
+cp -r odoo-toolkit/scripts /ruta/al/proyecto-odoo/scripts
+```
+
+Cada proyecto queda autocontenido — no depende de que `odoo-toolkit` siga existiendo en esa ruta. A cambio, mejoras futuras al toolkit no se propagan solas: hay que repetir el `cp` para actualizar.
+
 ## Comandos principales
 
 ```bash
