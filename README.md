@@ -13,11 +13,27 @@ odoo-toolkit/
     └── new_module.sh   # scaffold de módulo nuevo
 ```
 
+## Instalación
+
+Clonar como directorio hermano de tus proyectos Odoo:
+
+```bash
+git clone git@github.com:liwBh/odoo-toolkit.git
+```
+
 ## Uso en un proyecto Odoo
 
 Los scripts y el `Makefile` asumen que corren desde la raíz de un checkout de Odoo (usan rutas relativas: `./addons`, `./extra_addons`, `.venv/bin/python`, `odoo.conf`).
 
-Conectar por symlink (mismo filesystem, sin git submodule):
+Conectar por symlink (mismo filesystem, sin git submodule) — usando `link.sh`:
+
+```bash
+odoo-toolkit/link.sh /ruta/al/proyecto-odoo
+```
+
+Esto crea `Apuntes.md`, `Makefile` y `scripts` como symlinks hacia `odoo-toolkit/` dentro del proyecto. Falla si alguno de esos ya existe como archivo real (para no pisar trabajo existente sin querer).
+
+Alternativa manual (mismo resultado):
 
 ```bash
 cd /ruta/al/proyecto-odoo
