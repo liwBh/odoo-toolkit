@@ -51,6 +51,24 @@ reset-db: stop
 new-module:
 	@bash scripts/new_module.sh "$(name)" "$(description)" "$(category)" "$(author)"
 
+# make new-view model=courses.students module=students [editable=1]
+# Crea (o actualiza de forma aditiva) list+form para un modelo ya existente
+# y lo cuelga de menu_<module> (debe existir). Requiere DB con el módulo instalado.
+new-view:
+	@$(PYTHON) scripts/new_view.py --model "$(model)" --module "$(module)" $(if $(editable),--editable,)
+
+# make remove-view model=courses.students module=students
+# Borra la(s) vista(s) generadas para ese modelo + referencias en manifest/csv/menú.
+# No toca la DB — corré update-module después.
+remove-view:
+	@$(PYTHON) scripts/remove_view.py --model "$(model)" --module "$(module)"
+
+# make remove-module name=students [yes=1]
+# DESTRUCTIVO: desinstala el módulo de la DB (limpia tablas/registros) y borra
+# extra_addons/<name>/ completo. Pide confirmación salvo yes=1.
+remove-module:
+	@$(PYTHON) scripts/remove_module.py --name "$(name)" $(if $(yes),--yes,)
+
 install:
 	$(ODOO) $(CONF) -i $(CUSTOM_MODULES) --stop-after-init
 
@@ -97,6 +115,9 @@ help:
 	@echo "  make init-db                                      - Inicializar DB con base"
 	@echo "  make reset-db                                     - Borrar y recrear DB"
 	@echo "  make new-module name='' description='' category=''- Crear módulo nuevo (scaffold)"
+	@echo "  make new-view model='' module='' [editable=1]     - Crear/actualizar list+form para un modelo"
+	@echo "  make remove-view model='' module=''               - Borrar vista(s) generadas de un modelo"
+	@echo "  make remove-module name='' [yes=1]                - Desinstalar y borrar un módulo (destructivo)"
 	@echo "  make install                                      - Instalar módulos custom"
 	@echo "  make update                                       - Actualizar módulos custom"
 	@echo "  make install-module module=nombre                 - Instalar un módulo"
@@ -108,5 +129,5 @@ help:
 	@echo "  make port                                         - Ver proceso en puerto 8069"
 	@echo ""
 
-.PHONY: init-config setup run stop restart dev init-db reset-db new-module install update \
-        install-module update-module create-user create-admin change-password port shell help
+.PHONY: init-config setup run stop restart dev init-db reset-db new-module new-view remove-view remove-module \
+        install update install-module update-module create-user create-admin change-password port shell help

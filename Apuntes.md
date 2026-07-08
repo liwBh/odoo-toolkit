@@ -34,6 +34,10 @@
 7. [Menús y Acciones (view_menu.xml)](#7-menús-y-acciones-view_menuxml)
 8. [Seguridad — ir.model.access.csv](#8-seguridad--irmodelaccesscsv)
 9. [Scaffold — Crear módulo nuevo](#9-scaffold--crear-módulo-nuevo)
+   - 9.1 [make new-module — módulo completo desde cero](#91-make-new-module--módulo-completo-desde-cero)
+   - 9.2 [make new-view — list+form para un modelo ya escrito a mano](#92-make-new-view--listform-para-un-modelo-ya-escrito-a-mano)
+   - 9.3 [make remove-view — inverso de 9.2](#93-make-remove-view--inverso-de-92)
+   - 9.4 [make remove-module — borrar un módulo completo (destructivo)](#94-make-remove-module--borrar-un-módulo-completo-destructivo)
 10. [Usuarios y Contraseñas](#10-usuarios-y-contraseñas)
     - 10.1 [Comandos Makefile de usuarios](#101-comandos-makefile-de-usuarios)
     - 10.2 [Contraseñas — dos conceptos distintos](#102-contraseñas--dos-conceptos-distintos)
@@ -199,6 +203,8 @@ Automatiza el ciclo manual de "edito código → paro server → `-u` → levant
 5. Si OK — levanta el server de nuevo con `--dev=access,qweb,xml` (sin `reload`, para no competir con el autoreload nativo de Odoo que se activa solo por tener `watchdog` instalado).
 
 Cubre lo que un restart simple no cubre: cambios de vistas XML, security CSV y campos de modelo (todos requieren `-u`, no solo restart). Cambios de lógica Python pura también entran por este mismo camino (no hay hot-reload sin `-u`/restart en este setup).
+
+> **No instala módulos nuevos.** `-u` solo actualiza módulos ya instalados — un módulo recién creado con `make new-module` (ver 9.1) necesita un `make install-module module=<nombre>` manual una vez; recién ahí `make dev` lo toma en cada guardado subsecuente.
 
 > Script: `scripts/dev_watch.py`. Corré en su propia terminal — necesitás ver los tracebacks cuando algo rompe.
 
@@ -545,6 +551,27 @@ enrollment_ids = fields.One2many('courses.students', 'student_id', string='Matr�
 
 > `editable="bottom"` — editar directamente en la lista sin popup.
 
+**One2many de solo lectura (no permitir crear/editar/borrar desde acá)**
+
+Cuando el O2M embebido es solo para *ver* datos relacionados (el alta/edición real pasa por otro form, u otro rol es dueño de esos datos), sacar `editable` y bloquear las acciones de la lista:
+
+```xml
+<field name="grade_ids" nolabel="1">
+    <list create="false" edit="false" delete="false">
+        <field name="course_id"/>
+        <field name="note"/>
+        <field name="status_grade"/>
+    </list>
+</field>
+```
+
+- `create="false"` — sin botón "Agregar línea".
+- `edit="false"` — las filas no abren para editar (ni inline ni popup).
+- `delete="false"` — sin ícono de borrar por fila.
+- Ejemplo real (`students.info`): el estudiante ve sus notas por curso (`grade_ids` → `grades.students`) pero no las puede tocar desde su propio form — esos datos se cargan desde otro lado.
+
+> Sin estos tres atributos, un O2M sin `editable` igual deja abrir cada línea en popup y borrar filas — hay que apagar los tres explícitamente para que sea 100% solo-lectura.
+
 ### 6.3 Anatomía completa de `<form>`
 
 ```xml
@@ -632,6 +659,16 @@ enrollment_ids = fields.One2many('courses.students', 'student_id', string='Matr�
 | `help` | Tooltip "?" junto a la etiqueta al hacer hover — sobreescribe el `help` del campo Python si se pone acá | `help="Ver detalle en pestaña Notas"` |
 
 > El lugar recomendado para `help` es el campo en **Python** (`fields.Char(..., help="...")`), no la vista — así el tooltip aplica en todas las vistas que usan ese campo sin repetirlo. Sin `help` en ninguno de los dos lados, no aparece el ícono "?".
+
+**`Integer` con separador de miles no deseado (ej: campo `year`)**
+
+Por defecto, cualquier `fields.Integer` se muestra formateado según el locale — separador de miles incluido. Un año (`2026`) sale como `2,026`, lo cual no tiene sentido. Se apaga con la opción `enable_formatting` en `options`:
+
+```xml
+<field name="year" options="{'enable_formatting': false}"/>
+```
+
+> Aplica en form y list por separado — hay que ponerlo en cada `<field name="year"/>` que aparezca.
 
 **Atributos de `<button>`**
 
@@ -738,6 +775,8 @@ access.mi.modelo,access_mi_modelo,model_mi_modelo,base.group_user,1,1,1,1
 
 ## 9. Scaffold — Crear módulo nuevo
 
+### 9.1 make new-module — módulo completo desde cero
+
 ```bash
 make new-module name=students description="Estudiantes" category="Students" author="Solvosoft"
 ```
@@ -771,6 +810,62 @@ make install-module module=students
 ```
 
 > Script: `scripts/new_module.sh`. Falla si el módulo ya existe o si `name` no es snake_case válido.
+
+### 9.2 make new-view — list+form para un modelo ya escrito a mano
+
+Para cuando ya armaste el modelo Python a mano (ej. `courses.students` en `models/courses.py`) y solo querés generar sus vistas + colgarlo del menú, sin repetir a mano el `<list>`/`<form>`/`<menuitem>`/fila de `ir.model.access.csv`.
+
+```bash
+make new-view model=courses.students module=students
+make new-view model=courses.students module=students editable=1   # O2M embebidos editables en vez de solo-lectura
+```
+
+- `model` — nombre técnico del modelo (`_name`), ya tiene que existir en el registry (o sea, el módulo instalado con ese modelo cargado — corré `-u` antes si acabás de crear el modelo).
+- `module` — carpeta del módulo en `extra_addons/`. Tiene que existir `menu_<module>` en `views/view_menu.xml` — si no existe, el comando falla en vez de inventar un menú nuevo.
+- `editable` — opcional. Sin esto, los `One2many` embebidos en el form salen solo-lectura (`create="false" edit="false" delete="false"`, mismo patrón que 6.2).
+
+**Qué genera para cada tipo de campo:**
+
+| Tipo de campo | List | Form |
+|---|---|---|
+| `Char`, `Integer`, `Float`, `Boolean`, `Date`, `Selection`, `Many2one` | `<field name="x"/>` | igual |
+| `Many2many` | `<field name="x_ids" widget="many2many_tags"/>` | igual |
+| `One2many` | (se omite — no va en list) | embebido, con `<list>` solo mostrando el `_rec_name` del modelo relacionado |
+
+**Si las vistas YA existen — modo update aditivo:** el comando busca entre los XML de `views/` cuál ya declara ese modelo (no asume ningún nombre de archivo), y agrega **solo** los campos del modelo que todavía no aparecen ahí — nunca borra, reordena ni toca `options`/`readonly`/separators que hayas puesto a mano. Si no falta ningún campo, no toca el archivo.
+
+También agrega, si faltan: la fila del modelo en `ir.model.access.csv`, las líneas de los archivos nuevos en `__manifest__.py`, y el `<record ir.actions.act_window>` + `<menuitem parent="menu_<module>">` en `view_menu.xml`.
+
+> Script: `scripts/new_view.py`. Necesita DB corriendo (usa el registry de Odoo para leer los campos reales del modelo, no parsea el `.py`).
+
+### 9.3 make remove-view — inverso de 9.2
+
+```bash
+make remove-view model=courses.students module=students
+```
+
+Busca la(s) vista(s) de ese modelo (mismo criterio que 9.2 — por contenido, no por nombre asumido), las borra, y saca las referencias en `__manifest__.py`, `ir.model.access.csv` y `view_menu.xml` (el `<record ir.actions.act_window>` y el `<menuitem>` de ese modelo).
+
+No toca la DB directamente — corré `make update-module module=<app>` (o dejá que `make dev` lo agarre) para que Odoo borre los registros (`ir.ui.view`, `ir.model.access`, `ir.actions.act_window`, `ir.ui.menu`) asociados a esos xmlids. Bajo riesgo: solo borra lo que el propio patrón de archivos de vista generó, no toca el modelo Python ni otras vistas.
+
+> Script: `scripts/remove_view.py`.
+
+### 9.4 make remove-module — borrar un módulo completo (destructivo)
+
+```bash
+make remove-module name=students
+# o sin confirmación interactiva:
+make remove-module name=students yes=1
+```
+
+**Irreversible.** A diferencia de 9.3, esto:
+1. Desinstala el módulo desde Odoo (`button_immediate_uninstall`) — limpia tablas, `ir.model.data`, accesos, vistas y menús asociados en la DB.
+2. Borra `extra_addons/<name>/` completo.
+3. Lo saca de `modules.txt`.
+
+Pide confirmación escribiendo el nombre del módulo (salvo `yes=1`). El orden importa: desinstala en DB **antes** de borrar la carpeta — al revés queda basura huérfana (tablas/registros sin módulo dueño), que es justo lo que pasó una vez en este proyecto por borrar la carpeta a mano sin desinstalar primero.
+
+> Script: `scripts/remove_module.py`. Recomendado correrlo con `make dev` parado para evitar que el watcher intente recargar a mitad de la desinstalación.
 
 ---
 

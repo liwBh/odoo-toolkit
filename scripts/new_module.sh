@@ -131,4 +131,4 @@ fi
 echo ""
 echo "Módulo '$MOD' creado en $DIR/"
 echo "Agregado a modules.txt"
-echo "Siguiente paso: make install-module module=$MOD"
+echo "Corré 'make install-module module=$MOD' para instalarlo (make dev no lo instala solo — recién actualiza módulos ya instalados)."
