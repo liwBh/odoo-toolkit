@@ -206,6 +206,8 @@ Cubre lo que un restart simple no cubre: cambios de vistas XML, security CSV y c
 
 > **No instala módulos nuevos.** `-u` solo actualiza módulos ya instalados — un módulo recién creado con `make new-module` (ver 9.1) necesita un `make install-module module=<nombre>` manual una vez; recién ahí `make dev` lo toma en cada guardado subsecuente.
 
+**Para detenerlo del todo: `Ctrl+C` en su propia terminal**, no `make stop` desde otra. `make stop` solo mata el proceso `odoo-bin` (el server) — el watcher (`dev_watch.py`) sigue vivo esperando cambios, y si guardás algo después lo vuelve a levantar solo, sin que se lo hayas pedido. `Ctrl+C` sí dispara el handler que frena el server limpio y corta el watcher entero.
+
 > Script: `scripts/dev_watch.py`. Corré en su propia terminal — necesitás ver los tracebacks cuando algo rompe.
 
 ### 3.4 Modo Desarrollador (Developer Mode)
