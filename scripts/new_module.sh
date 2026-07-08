@@ -4,10 +4,11 @@ set -euo pipefail
 MOD="${1:-}"
 DESC="${2:-$MOD}"
 CATEGORY="${3:-Uncategorized}"
+AUTHOR="${4:-}"
 ADDONS_DIR="extra_addons"
 
 if [ -z "$MOD" ]; then
-    echo "Uso: make new-module name=nombre_modulo [description=\"Descripción\"] [category=\"Categoría\"]"
+    echo "Uso: make new-module name=nombre_modulo [description=\"Descripción\"] [category=\"Categoría\"] [author=\"Autor\"]"
     exit 1
 fi
 
@@ -22,7 +23,11 @@ if [ -e "$DIR" ]; then
     exit 1
 fi
 
-MODEL="${MOD//_/.}"
+if [[ "$MOD" == *_* ]]; then
+    MODEL="${MOD//_/.}"
+else
+    MODEL="$MOD.info"
+fi
 CLASS=$(echo "$MOD" | awk -F'_' '{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1)) substr($i,2)}}1' OFS='')
 
 mkdir -p "$DIR/models" "$DIR/views" "$DIR/security"
@@ -32,8 +37,10 @@ echo "from . import models" > "$DIR/__init__.py"
 cat > "$DIR/__manifest__.py" <<EOF
 {
     "name": "$DESC",
+    "summary": "$DESC",
+    "description": "$DESC",
     "category": "$CATEGORY",
-    "author": "",
+    "author": "$AUTHOR",
     "version": "19.0.1.0.0",
     "application": True,
     "depends": ["base"],
@@ -111,7 +118,7 @@ EOF
 
 cat > "$DIR/security/ir.model.access.csv" <<EOF
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_$MOD,access_$MOD,model_$MOD,base.group_user,1,1,1,1
+access_$MOD,access_$MOD,model_${MODEL//./_},base.group_user,1,1,1,1
 EOF
 
 if [ -f "modules.txt" ]; then

@@ -25,7 +25,8 @@ run:
 	$(ODOO) $(CONF) --dev=all
 
 stop:
-	pkill -f odoo-bin || true
+	pkill -f "[o]doo-bin" || true
+	@while pgrep -f "[o]doo-bin" >/dev/null; do sleep 0.5; done
 
 restart: stop run
 
@@ -41,9 +42,9 @@ reset-db: stop
 
 # ── Módulos ───────────────────────────────────────────────────────────────────
 
-# make new-module name=courses_info description="Cursos" category="Academico"
+# make new-module name=students description="Estudiantes" category="Students" author="Solvosoft"
 new-module:
-	@bash scripts/new_module.sh "$(name)" "$(description)" "$(category)"
+	@bash scripts/new_module.sh "$(name)" "$(description)" "$(category)" "$(author)"
 
 install:
 	$(ODOO) $(CONF) -i $(CUSTOM_MODULES) --stop-after-init

@@ -683,21 +683,22 @@ make help
 ## 17. Crear módulo nuevo (scaffold)
 
 ```bash
-make new-module name=courses_info description="Cursos" category="Academico"
+make new-module name=students description="Estudiantes" category="Students" author="Solvosoft"
 ```
 
-- `name` — snake_case, se usa como nombre de carpeta en `extra_addons/` y como base del nombre técnico del modelo (`_` → `.`, ej: `courses_info` → `courses.info`).
+- `name` — snake_case, se usa como nombre de carpeta en `extra_addons/` y como base del nombre técnico del modelo. Si `name` es una sola palabra (sin `_`), se agrega sufijo `.info` (ej: `students` → `students.info`). Si trae `_`, solo se convierte a `.` sin agregar sufijo (ej: `students_xd` → `students.xd`, `courses_info` → `courses.info`).
 - `description` — opcional, texto legible para `__manifest__.py` y menú. Si se omite, usa `name`.
 - `category` — opcional, categoría del módulo en `__manifest__.py`. Si se omite, usa `Uncategorized`.
+- `author` — opcional, autor en `__manifest__.py`. Si se omite, queda vacío.
 
 Genera:
 ```
-extra_addons/courses_info/
+extra_addons/students/
 ├── __init__.py
 ├── __manifest__.py
 ├── models/
 │   ├── __init__.py
-│   └── courses_info.py        # class CoursesInfo(models.Model), _name = "courses.info"
+│   └── students.py             # class Students(models.Model), _name = "students.info"
 ├── views/
 │   ├── view_list.xml
 │   ├── view_form.xml
@@ -710,7 +711,7 @@ También agrega el módulo a `modules.txt` (usado por `make install` / `make upd
 
 Siguiente paso:
 ```bash
-make install-module module=courses_info
+make install-module module=students
 ```
 
 > Script: `scripts/new_module.sh`. Falla si el módulo ya existe o si `name` no es snake_case válido.
