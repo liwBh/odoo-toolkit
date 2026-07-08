@@ -15,6 +15,7 @@ setup:
 	python3 -m venv .venv
 	.venv/bin/pip install --upgrade pip
 	.venv/bin/pip install -r requirements.txt
+	.venv/bin/pip install watchdog
 	mkdir -p extra_addons
 	@echo ""
 	@echo "Entorno listo. Continúa con: make init-db && make install"
@@ -29,6 +30,10 @@ stop:
 	@while pgrep -f "[o]doo-bin" >/dev/null; do sleep 0.5; done
 
 restart: stop run
+
+# Auto-aplica -u + restart en cada cambio de extra_addons/**/*.{py,xml,csv}
+dev: stop
+	$(PYTHON) scripts/dev_watch.py
 
 # ── Base de datos ─────────────────────────────────────────────────────────────
 
@@ -88,6 +93,7 @@ help:
 	@echo "  make run                                          - Iniciar Odoo"
 	@echo "  make stop                                         - Detener Odoo"
 	@echo "  make restart                                      - Reiniciar Odoo"
+	@echo "  make dev                                          - Auto -u + restart al guardar cambios"
 	@echo "  make init-db                                      - Inicializar DB con base"
 	@echo "  make reset-db                                     - Borrar y recrear DB"
 	@echo "  make new-module name='' description='' category=''- Crear módulo nuevo (scaffold)"
@@ -102,5 +108,5 @@ help:
 	@echo "  make port                                         - Ver proceso en puerto 8069"
 	@echo ""
 
-.PHONY: init-config setup run stop restart init-db reset-db new-module install update \
+.PHONY: init-config setup run stop restart dev init-db reset-db new-module install update \
         install-module update-module create-user create-admin change-password port shell help
