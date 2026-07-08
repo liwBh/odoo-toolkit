@@ -116,9 +116,10 @@ cat > "$DIR/views/view_menu.xml" <<EOF
 </odoo>
 EOF
 
+MODEL_US="${MODEL//./_}"
 cat > "$DIR/security/ir.model.access.csv" <<EOF
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_$MOD,access_$MOD,model_${MODEL//./_},base.group_user,1,1,1,1
+access_$MODEL_US,access.$MODEL,model_$MODEL_US,base.group_user,1,1,1,1
 EOF
 
 if [ -f "modules.txt" ]; then
