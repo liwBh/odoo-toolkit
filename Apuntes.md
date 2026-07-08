@@ -22,12 +22,15 @@
    - 5.1 [Modelo básico](#51-modelo-básico)
    - 5.2 [Herencia — tres casos de `_inherit`](#52-herencia--tres-casos-de-_inherit)
    - 5.3 [display_name personalizado](#53-display_name-personalizado)
-   - 5.4 [Campos relacionales](#54-campos-relacionales)
+   - 5.4 [El campo `name` — por qué es especial](#54-el-campo-name--por-qué-es-especial)
+   - 5.5 [Campos calculados (compute)](#55-campos-calculados-compute)
+   - 5.6 [Campos relacionales](#56-campos-relacionales)
 6. [Vistas](#6-vistas)
    - 6.1 [Lista (view_list.xml)](#61-lista-view_listxml)
    - 6.2 [Formulario con One2many embebido](#62-formulario-con-one2many-embebido)
    - 6.3 [Anatomía completa de `<form>`](#63-anatomía-completa-de-form)
    - 6.4 [Referencia rápida — elementos, atributos, widgets](#64-referencia-rápida--elementos-atributos-widgets)
+   - 6.5 [Interfaz (UI) — patrones de layout](#65-interfaz-ui--patrones-de-layout)
 7. [Menús y Acciones (view_menu.xml)](#7-menús-y-acciones-view_menuxml)
 8. [Seguridad — ir.model.access.csv](#8-seguridad--irmodelaccesscsv)
 9. [Scaffold — Crear módulo nuevo](#9-scaffold--crear-módulo-nuevo)
@@ -371,7 +374,63 @@ class Persona(models.Model):
 
 > Sin `@api.depends` el campo no se recalcula al editar.
 
-### 5.4 Campos relacionales
+### 5.4 El campo `name` — por qué es especial
+
+Todo modelo de Odoo tiene un campo "rec_name" que se usa como texto por defecto en:
+- Selectores Many2one/Many2many (lo que ve el usuario al buscar/elegir un registro relacionado).
+- Breadcrumbs, títulos de formulario, resultados de búsqueda global.
+- `record.display_name` (a menos que se override, ver 5.3).
+
+Por convención ese campo se llama `name` — si el modelo define un campo `name`, Odoo lo usa automáticamente como `_rec_name` sin configuración extra. Si no existe, hay que declarar `_rec_name = 'otro_campo'` explícitamente o el registro se muestra como `ID` pelado.
+
+**No hace falta que `name` sea editable a mano** — puede ser un campo `compute` (ver 5.5). Ejemplo real (`students.info`): `name` es el nombre completo, calculado a partir de `first_name` + `last_name`:
+```python
+name = fields.Char(string="Nombre Completo", compute="_compute_name", store=True)
+first_name = fields.Char(string="Nombre", required=True)
+last_name = fields.Char(string="Apellidos", required=True)
+
+@api.depends("first_name", "last_name")
+def _compute_name(self):
+    for rec in self:
+        rec.name = f"{rec.first_name or ''} {rec.last_name or ''}".strip()
+```
+Así el selector Many2one hacia `students.info` muestra el nombre completo sin tener que exponer un campo `name` editable en el form.
+
+### 5.5 Campos calculados (compute)
+
+Un campo `compute` se recalcula solo cuando cambian sus dependencias — no se llena a mano.
+
+```python
+compute="_compute_metodo"   # nombre del método que calcula el valor
+store=True                  # True = se guarda en DB (permite filtrar/ordenar por el campo)
+                             # False = se recalcula al vuelo, no ocupa columna en DB
+```
+
+**Ejemplo real** (`students.info`): `age` se calcula solo a partir de `birth_date`, nunca se edita a mano:
+```python
+from datetime import date
+
+birth_date = fields.Date(string="Fecha de Nacimiento", required=True)
+age = fields.Integer(string="Edad", compute="_compute_age", store=True)
+
+@api.depends("birth_date")
+def _compute_age(self):
+    today = date.today()
+    for rec in self:
+        if not rec.birth_date:
+            rec.age = 0
+            continue
+        born = rec.birth_date
+        rec.age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+```
+
+Reglas clave:
+- `@api.depends(...)` lista los campos que, al cambiar, disparan el recálculo. Sin esto el campo se queda con el valor viejo (mismo problema que en 5.3).
+- El método recibe `self` como un **recordset** — siempre iterar con `for rec in self:` y asignar `rec.campo = valor` dentro del loop (nunca `self.campo = valor` fuera del loop).
+- Con `store=True` el campo aparece en vistas `<list>` con `sum`/`group_by`, se puede buscar/filtrar y ordenar — sin `store` no.
+- Un campo compute+store queda **readonly en la UI por defecto** (no se puede tipear encima) — coherente con que "se calcula solo".
+
+### 5.6 Campos relacionales
 
 **Many2one — muchos a uno**
 ```python
@@ -570,6 +629,9 @@ enrollment_ids = fields.One2many('courses.students', 'student_id', string='Matr�
 | `nolabel` | Oculta la etiqueta | `nolabel="1"` |
 | `colspan` | Cuántas columnas ocupa dentro de `<group>` | `colspan="2"` |
 | `options` | Opciones extra del widget (JSON) | `options="{'no_create': True}"` |
+| `help` | Tooltip "?" junto a la etiqueta al hacer hover — sobreescribe el `help` del campo Python si se pone acá | `help="Ver detalle en pestaña Notas"` |
+
+> El lugar recomendado para `help` es el campo en **Python** (`fields.Char(..., help="...")`), no la vista — así el tooltip aplica en todas las vistas que usan ese campo sin repetirlo. Sin `help` en ninguno de los dos lados, no aparece el ícono "?".
 
 **Atributos de `<button>`**
 
@@ -595,6 +657,40 @@ enrollment_ids = fields.One2many('courses.students', 'student_id', string='Matr�
 | `priority` | Selection | Estrellas de prioridad |
 | `boolean_toggle` | Boolean | Toggle switch |
 | `char_emojis` | Char | Input con emojis |
+
+### 6.5 Interfaz (UI) — patrones de layout
+
+**`<group>` es para pares cortos `label: valor`, no para texto largo.**
+
+`<group>` arma una grilla de 2 columnas fija y comprime cualquier campo a una fila angosta, aunque el campo sea `Text` o `Html` — el widget se renderiza pero visualmente queda como un input de una línea, no como caja de texto.
+
+**Regla práctica:**
+
+| Tipo de campo | Dónde ponerlo | Por qué |
+|---|---|---|
+| `Char`, `Many2one`, `Date`, `Selection`, `Boolean` (valores cortos) | Dentro de `<group>` | Layout compacto, 2 columnas, es lo que `<group>` está diseñado para mostrar |
+| `Text`, `Html`, campos con contenido extenso | **Fuera** de `<group>`, directo en `<sheet>` (o dentro de `<notebook><page>` si hay varios) | Necesitan ancho completo y altura variable — `<group>` los aprieta |
+
+**Fix real** (`students.info` — campo `reports`, tipo `Html`):
+
+```xml
+<!-- Mal: adentro de group, sale como input de una línea -->
+<group>
+    ...
+    <field name="reports"/>
+</group>
+
+<!-- Bien: fuera del group, ancho completo, editor rich text real -->
+<group>
+    ...
+</group>
+<separator string="Reportes del estudiante"/>
+<field name="reports" nolabel="1"/>
+```
+
+- `nolabel="1"` — sin esto, al estar fuera de `<group>` el campo se muestra con su etiqueta arriba ocupando una fila propia igual; usar `nolabel` cuando el `<separator>` ya cumple el rol de título.
+- `<separator string="...">` — línea divisora con título, sirve de header visual para la sección de texto largo.
+- Mismo patrón aplica a `Text` (textarea simple) y a `One2many` con lista embebida grande (ver 6.2) — cualquier contenido que necesite más que una línea sale mejor fuera del `<group>`.
 
 ---
 
