@@ -63,7 +63,7 @@ Cada proyecto queda autocontenido — no depende de que `odoo-toolkit` siga exis
 make init-config db_name=mi_db db_user=mi_user db_password=pass admin_passwd=Admin1234
 make setup
 make init-db
-make run
+make dev
 make new-module name=mi_modulo description="Mi Módulo" category="Categoria"
 make help
 ```
