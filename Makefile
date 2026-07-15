@@ -2,8 +2,9 @@ SHELL = /bin/bash
 PYTHON = .venv/bin/python
 ODOO = $(PYTHON) odoo-bin
 CONF = -c odoo.conf
-DB = odoocurso_db
+DB = $(shell grep -E '^\s*db_name' odoo.conf 2>/dev/null | tail -1 | cut -d'=' -f2 | tr -d ' ')
 CUSTOM_MODULES = $(shell grep -v '^\s*#' modules.txt | grep -v '^\s*$$' | tr '\n' ',' | sed 's/,$$//')
+CUSTOM_MODULES_SPACED = $(shell grep -v '^\s*#' modules.txt | grep -v '^\s*$$' | tr '\n' ' ')
 
 # ── Setup inicial ─────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ stop:
 
 restart: stop run
 
-# Auto-aplica -u + restart en cada cambio de extra_addons/**/*.{py,xml,csv}
+# Auto-aplica -u + restart en cada cambio de extra_addons/**/*.{py,xml,csv,po,css,scss,js}
 dev: stop
 	$(PYTHON) scripts/dev_watch.py
 
@@ -83,6 +84,43 @@ install-module:
 update-module:
 	$(ODOO) $(CONF) -u $(module) --stop-after-init
 
+# ── Traducciones ──────────────────────────────────────────────────────────────
+
+# make trans-loadlang [lang="es_419 en_US"]   — sin lang, instala en_US y es_419 (default de este proyecto)
+trans-loadlang:
+	$(PYTHON) odoo-bin i18n loadlang $(CONF) -d $(DB) -l $(if $(lang),$(lang),en_US es_419)
+
+# make trans-export [lang=es_419]   — sin lang, genera solo el .pot (template)
+# OJO: pisa el .po/.pot existente con lo que haya en la DB — no usar si tenés
+# ediciones a mano sin importar todavía (make trans-import antes de re-exportar).
+# Para actualizar un .po de idioma sin perder lo ya traducido, usar trans-sync.
+trans-export:
+	$(PYTHON) odoo-bin i18n export $(CONF) -d $(DB) $(CUSTOM_MODULES_SPACED) -l $(if $(lang),$(lang),pot)
+
+# make trans-sync lang=es_419   — regenera el .po de lang para cada módulo,
+# preservando los msgstr que ya estaban traducidos (no los pisa como trans-export)
+trans-sync:
+	@if [ -z "$(lang)" ]; then echo "Uso: make trans-sync lang=es_419"; exit 1; fi
+	$(PYTHON) scripts/trans_sync.py odoo.conf $(DB) $(lang) $(CUSTOM_MODULES_SPACED)
+
+# make trans-scaffold lang=es_419   — crea el .po de lang SOLO para módulos que
+# todavía no lo tienen (no pisa los existentes, a diferencia de trans-export)
+trans-scaffold:
+	@if [ -z "$(lang)" ]; then echo "Uso: make trans-scaffold lang=es_419"; exit 1; fi
+	@for mod in $(CUSTOM_MODULES_SPACED); do \
+		po="extra_addons/$$mod/i18n/$(lang).po"; \
+		if [ -f "$$po" ]; then \
+			echo "[trans-scaffold] $$po ya existe, no se toca"; \
+		else \
+			echo "[trans-scaffold] creando $$po"; \
+			$(PYTHON) odoo-bin i18n export $(CONF) -d $(DB) $$mod -l $(lang); \
+		fi; \
+	done
+
+# make trans-import lang=es_419 [overwrite=1]
+trans-import:
+	$(PYTHON) odoo-bin i18n import $(CONF) -d $(DB) extra_addons/students/i18n/$(lang).po -l $(lang) $(if $(overwrite),-w,)
+
 # ── Usuarios ──────────────────────────────────────────────────────────────────
 
 # make create-user name="Juan Perez" login="juan@test.com" password="pass123"
@@ -124,6 +162,11 @@ help:
 	@echo "  make update                                       - Actualizar módulos custom"
 	@echo "  make install-module module=nombre                 - Instalar un módulo"
 	@echo "  make update-module module=nombre                  - Actualizar un módulo"
+	@echo "  make trans-loadlang [lang='']                      - Instalar idioma(s) en la DB (default: en_US es_419)"
+	@echo "  make trans-export [lang='']                       - Exportar .pot (o .po de lang) a i18n/ (pisa lo existente)"
+	@echo "  make trans-sync lang=''                            - Actualizar .po de lang preservando lo ya traducido"
+	@echo "  make trans-scaffold lang=''                        - Crear .po de lang solo donde no existe (no pisa)"
+	@echo "  make trans-import lang='' [overwrite=1]            - Importar .po de lang a la DB"
 	@echo "  make create-user name='' login='' password=''     - Crear usuario normal"
 	@echo "  make create-admin name='' login='' password=''    - Crear usuario admin"
 	@echo "  make change-password login='' password=''         - Cambiar password"
@@ -132,4 +175,6 @@ help:
 	@echo ""
 
 .PHONY: init-config setup run stop restart dev init-db reset-db new-module new-view remove-view remove-module \
-        install update install-module update-module create-user create-admin change-password port shell help
+        install update install-module update-module trans-loadlang trans-export trans-sync trans-scaffold \
+        trans-import create-user create-admin \
+        change-password port shell help

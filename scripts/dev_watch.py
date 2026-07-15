@@ -16,7 +16,7 @@ MODULES_FILE = ROOT / "modules.txt"
 CONF = ROOT / "odoo.conf"
 PYTHON = ROOT / ".venv" / "bin" / "python"
 ODOO_BIN = ROOT / "odoo-bin"
-WATCHED_SUFFIXES = {".py", ".xml", ".csv"}
+WATCHED_SUFFIXES = {".py", ".xml", ".csv", ".po", ".css", ".scss", ".js"}
 DEBOUNCE_SECONDS = 1.5
 
 server_proc = None
@@ -120,7 +120,7 @@ def main():
     observer = Observer()
     observer.schedule(DebouncedHandler(), str(ADDONS_DIR), recursive=True)
     observer.start()
-    print(f"[dev] watching {ADDONS_DIR} (.py/.xml/.csv) — Ctrl+C para salir")
+    print(f"[dev] watching {ADDONS_DIR} (.py/.xml/.csv/.po/.css/.scss/.js) — Ctrl+C para salir")
 
     try:
         while True:
