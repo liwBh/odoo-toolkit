@@ -958,6 +958,7 @@ python odoo-bin -c odoo.conf -i base
 | `_compute_display_name` no actualiza | Falta `@api.depends` | Agregar decorator con campos dependientes |
 | Many2many no sincroniza entre modelos | Falta tabla/columnas explícitas | Definir `relation`, `column1`, `column2` iguales en ambos lados |
 | `No matching record found for external id 'model_x_y'` en `ir.model.access.csv` | El `model_id:id` del CSV no coincide con el modelo real reflejado (mismatch entre `_name` y lo que referencia el CSV), o estado de módulo corrupto por instalaciones parciales previas | Verificar que `model_id:id` = `model_` + `_name` con `.`→`_`; si persiste, chequear `ir_module_module.state` en DB y reinstalar limpio |
+| `name`/`display_name` calculado muestra `modelo.tecnico(1,)` en vez del texto esperado | Un campo `Many2one` metido directo en un f-string (`f"{rec.course_id}"`) — Python llama al `__str__` del recordset, no a su nombre | Usar `rec.course_id.display_name` (o `.name`), nunca el recordset pelado |
 
 ### 11.3 Plugins recomendados
 
