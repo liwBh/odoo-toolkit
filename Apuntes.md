@@ -87,11 +87,11 @@ db_user = user_odoo
 db_password = <password>
 db_name = odoocurso_db
 addons_path = ./addons,./extra_addons
-xmlrpc_port = 8069
+http_port = 8069
 ```
 
 - `addons_path` incluye carpeta `extra_addons` para módulos custom.
-- `xmlrpc_port` es el puerto HTTP donde escucha Odoo (`make run` / `make dev`). Default `8069` — se escribe siempre explícito en el conf generado para que quede visible y sea fácil de cambiar si hay conflicto de puerto (ej. varios proyectos corriendo en paralelo).
+- `http_port` es el puerto HTTP donde escucha Odoo (`make run` / `make dev`). Default `8069` — se escribe siempre explícito en el conf generado para que quede visible y sea fácil de cambiar si hay conflicto de puerto (ej. varios proyectos corriendo en paralelo).
 
 Crear carpeta si no existe:
 ```bash
@@ -169,7 +169,7 @@ Pasos en orden:
    make run
    ```
 
-**URL de acceso:** `http://localhost:8069`
+**URL de acceso:** `http://localhost:8069` (o el `http_port` configurado en `odoo.conf` — `make run`/`make dev` imprimen la URL real al arrancar).
 
 **Credenciales por defecto:**
 - Login: `admin`
