@@ -7,9 +7,9 @@ CUSTOM_MODULES = $(shell grep -v '^\s*#' modules.txt | grep -v '^\s*$$' | tr '\n
 
 # ── Setup inicial ─────────────────────────────────────────────────────────────
 
-# make init-config db_name=curso_odoo db_user=odoo_user db_password=pass admin_passwd=Admin1234 [force=1]
+# make init-config db_name=curso_odoo db_user=odoo_user db_password=pass admin_passwd=Admin1234 [force=1] [http_port=8069]
 init-config:
-	@bash scripts/init_config.sh "$(admin_passwd)" "$(db_host)" "$(db_port)" "$(db_user)" "$(db_password)" "$(db_name)" "$(force)"
+	@bash scripts/init_config.sh "$(admin_passwd)" "$(db_host)" "$(db_port)" "$(db_user)" "$(db_password)" "$(db_name)" "$(force)" "$(http_port)"
 
 setup:
 	python3 -m venv .venv
@@ -23,6 +23,8 @@ setup:
 # ── Servidor ──────────────────────────────────────────────────────────────────
 
 run:
+	@PORT=$$(grep -E '^\s*http_port' odoo.conf 2>/dev/null | tail -1 | cut -d'=' -f2 | tr -d ' '); \
+	echo "[run] servidor en http://localhost:$${PORT:-8069}"
 	$(ODOO) $(CONF) --dev=all
 
 stop:

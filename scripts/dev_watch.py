@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Watch extra_addons/ y auto-aplica -u + restart en cada cambio (make dev)."""
+import configparser
 import subprocess
 import sys
 import threading
@@ -21,6 +22,14 @@ DEBOUNCE_SECONDS = 1.5
 server_proc = None
 lock = threading.Lock()
 apply_lock = threading.Lock()
+
+
+def http_port():
+    parser = configparser.ConfigParser()
+    if CONF.exists():
+        parser.read(CONF)
+        return parser.get("options", "http_port", fallback="8069")
+    return "8069"
 
 
 def custom_modules():
@@ -58,6 +67,7 @@ def start_server():
         [str(PYTHON), str(ODOO_BIN), "-c", str(CONF), "--dev=access,qweb,xml"],
         cwd=str(ROOT),
     )
+    print(f"[dev] servidor en http://localhost:{http_port()}")
 
 
 def apply_changes(reason):

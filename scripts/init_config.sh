@@ -8,6 +8,7 @@ DB_USER="${4:-odoo_user}"
 DB_PASSWORD="${5:-$DB_USER}"
 DB_NAME="${6:-odoo_db}"
 FORCE="${7:-}"
+HTTP_PORT="${8:-8069}"
 
 CONF="odoo.conf"
 
@@ -25,6 +26,7 @@ db_user = $DB_USER
 db_password = $DB_PASSWORD
 db_name = $DB_NAME
 addons_path = ./addons,./extra_addons
+http_port = $HTTP_PORT
 EOF
 
 mkdir -p extra_addons

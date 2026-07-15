@@ -87,9 +87,11 @@ db_user = user_odoo
 db_password = <password>
 db_name = odoocurso_db
 addons_path = ./addons,./extra_addons
+xmlrpc_port = 8069
 ```
 
 - `addons_path` incluye carpeta `extra_addons` para módulos custom.
+- `xmlrpc_port` es el puerto HTTP donde escucha Odoo (`make run` / `make dev`). Default `8069` — se escribe siempre explícito en el conf generado para que quede visible y sea fácil de cambiar si hay conflicto de puerto (ej. varios proyectos corriendo en paralelo).
 
 Crear carpeta si no existe:
 ```bash
@@ -98,10 +100,10 @@ mkdir -p extra_addons
 
 **Crear odoo.conf con Makefile:**
 ```bash
-make init-config db_name=curso_odoo db_user=odoo_user db_password=Admin1234 admin_passwd=Admin1234
+make init-config db_name=curso_odoo db_user=odoo_user db_password=Admin1234 admin_passwd=Admin1234 http_port=8069
 ```
 
-- Todos los parámetros son opcionales (defaults: `admin_passwd=Admin1234`, `db_host=localhost`, `db_port=5432`, `db_user=odoo_user`, `db_password=<db_user>`, `db_name=odoo_db`).
+- Todos los parámetros son opcionales (defaults: `admin_passwd=Admin1234`, `db_host=localhost`, `db_port=5432`, `db_user=odoo_user`, `db_password=<db_user>`, `db_name=odoo_db`, `http_port=8069`).
 - `addons_path` siempre queda `./addons,./extra_addons` y crea la carpeta `extra_addons` si no existe.
 - Si `odoo.conf` ya existe, rechaza sobreescribir — usar `force=1` para forzar:
 ```bash
