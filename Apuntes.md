@@ -36,7 +36,10 @@
    - 6.5 [Interfaz (UI) — patrones de layout](#65-interfaz-ui--patrones-de-layout)
    - 6.6 [group anidado, sheet, separator, notebook — cuándo usar cada uno](#66-group-anidado-sheet-separator-notebook--cuándo-usar-cada-uno)
    - 6.7 [Search view — filtros, group by, searchpanel](#67-search-view--filtros-group-by-searchpanel)
+   - 6.8 [Vistas de Wizard](#68-vistas-de-wizard)
 7. [Menús y Acciones (view_menu.xml)](#7-menús-y-acciones-view_menuxml)
+   - 7.1 [Ejemplo real completo](#71-ejemplo-real-completo-studentsviewsview_menuxml)
+   - 7.2 [Índice de vistas del módulo](#72-índice-de-vistas-del-módulo-students)
 8. [Seguridad](#8-seguridad)
    - 8.1 [ir.model.access.csv — permisos CRUD por grupo](#81-irmodelaccesscsv--permisos-crud-por-grupo)
    - 8.2 [Categorías y grupos — ir.module.category / res.groups.privilege / res.groups](#82-categorías-y-grupos--irmodulecategory--resgroupsprivilege--resgroups)
@@ -62,6 +65,15 @@
     - 12.3 [Día a día (agregaste un campo o mensaje nuevo)](#123-día-a-día-agregaste-un-campo-o-mensaje-nuevo)
 13. [Wizards (TransientModel)](#13-wizards-transientmodel)
 14. [Decoradores `@api` — referencia rápida](#14-decoradores-api--referencia-rápida)
+15. [Controladores (HTTP Endpoints)](#15-controladores-http-endpoints)
+    - 15.1 [Qué es y cómo se registra](#151-qué-es-y-cómo-se-registra)
+    - 15.2 [`@route` — parámetros](#152-route--parámetros)
+    - 15.3 [`auth` — niveles de autenticación](#153-auth--niveles-de-autenticación)
+    - 15.4 [`type` — http vs jsonrpc](#154-type--http-vs-jsonrpc)
+    - 15.5 [Recibir parámetros](#155-recibir-parámetros)
+    - 15.6 [Responder — make_response / make_json_response](#156-responder--make_response--make_json_response)
+    - 15.7 [Ejemplo real completo (endpoints JSON)](#157-ejemplo-real-completo-endpoints-json)
+    - 15.8 [Vistas personalizadas (QWeb) desde el controlador](#158-vistas-personalizadas-qweb-desde-el-controlador--páginas-web)
 
 ---
 
@@ -1174,6 +1186,52 @@ Y en la acción (`view_menu.xml`), referenciarla explícitamente — sin esto Od
 
 Solo soporta campos `Many2one` o `Selection` (`status_grade` es `Selection` — ver `grades.py`). Confirmado en el método server-side `search_panel_select_range` (`addons/web/models/models.py`): *"field_name: the name of a field; of type many2one or selection"*.
 
+### 6.8 Vistas de Wizard
+
+Un `<form>` para un modelo `TransientModel` (ver 13) — misma tag `<form>` que cualquier vista normal, pero con diferencias de uso porque el registro es descartable y se muestra siempre en modal (`target: "new"`), no en pantalla completa.
+
+Ejemplo real (`view_form_wizard_courses.xml`, modelo `wizard.courses`):
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="view_form_wizard_courses" model="ir.ui.view">
+        <field name="name">wizard.courses.form</field>
+        <field name="model">wizard.courses</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="student_id" readonly="1" options="{'no_open': True}"/>
+                    <field name="grade_id" readonly="1" options="{'no_open': True}"/>
+                    <field name="note"/>
+                </group>
+                <footer>
+                    <button string="Reprobar" type="object" name="disapprove" class="btn-primary"/>
+                    <button string="Cancelar" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
+```
+
+**Diferencias clave contra un form normal (ver 6.3):**
+
+| | Form normal | Form de wizard |
+|---|---|---|
+| `<sheet>` | Sí, envuelve el contenido | Opcional/no usado — el modal ya es chico, no hace falta el padding/borde de `<sheet>` |
+| Botones de acción | `<header>` (barra arriba, con `<field widget="statusbar"/>` si hay estados) | `<footer>` (barra abajo del modal) — patrón estándar de wizard, coherente con ser una acción puntual, no un registro con ciclo de vida |
+| `<field>` precargados por contexto | poco común | frecuente: `readonly="1" options="{'no_open': True}"` en los campos que vienen de `default_<campo>` (ver 15.5/5.7) — se muestran de referencia pero no se editan ni navegan |
+| Cómo se abre | acción `ir.actions.act_window` (record XML) referenciada desde un menú | dict Python devuelto por un método (`return {"type": "ir.actions.act_window", "target": "new", ...}`, ver 13) — no hace falta un `<record model="ir.actions.act_window">` ni entrada de menú separada |
+
+**Botones del `<footer>`:**
+- `type="object" name="metodo"` — llama un método del wizard mismo (acá `disapprove`, ver 13). Si el método no devuelve nada, el modal se cierra solo al terminar.
+- `special="cancel"` — cierra el modal sin ejecutar nada en el servidor.
+- `class="btn-primary"` / `class="btn-secondary"` — mismas clases Bootstrap que cualquier botón Odoo, para distinguir la acción principal de la de descarte.
+
+**Registro en `__manifest__.py`:** a diferencia de los controladores (ver 15.1, que no van en el manifest), la vista del wizard **sí** es un `data` file normal — necesita estar listada en `"data": [...]` como cualquier `view_form_*.xml`, si no el `ir.ui.view` nunca se crea y el `return` del método que abre el wizard falla con "view not found".
+
+**El `name` del `<record>` no es el título del popup** (ver 13) — es un label técnico interno. El título visible sale del `"name"` del dict de acción en Python.
+
 ---
 
 ## 7. Menús y Acciones (view_menu.xml)
@@ -1203,14 +1261,91 @@ Solo soporta campos `Many2one` o `Selection` (`status_grade` es `Selection` — 
 </odoo>
 ```
 
-**`groups="modulo.xmlid_del_grupo"`** — restringe qué grupo(s) ven ese `<menuitem>` (varios separados por coma = OR). Ponerlo en el menú **raíz** alcanza para esconder toda la rama de submenús aunque ellos no tengan `groups=` propio — Odoo arma el árbol de menús recursivamente desde la raíz, así que un hijo sin padre visible queda huérfano y se filtra igual (ver 8.2). Ejemplo real (`view_menu.xml`):
+**`groups="modulo.xmlid_del_grupo"`** — restringe qué grupo(s) ven ese `<menuitem>` (varios separados por coma = OR). Ponerlo en el menú **raíz** alcanza para esconder toda la rama de submenús aunque ellos no tengan `groups=` propio — Odoo arma el árbol de menús recursivamente desde la raíz, así que un hijo sin padre visible queda huérfano y se filtra igual (ver 8.2).
+
+### 7.1 Ejemplo real completo (`students/views/view_menu.xml`)
+
 ```xml
-<menuitem id="menu_students"
-          action="action_students"
-          name="Estudiantes"
-          groups="students.students_group_students_access"
-/>
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="action_students" model="ir.actions.act_window">
+        <field name="name">Estudiantes</field>
+        <field name="res_model">students.info</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_courses_students" model="ir.actions.act_window">
+        <field name="name">Cursos de estudiantes</field>
+        <field name="res_model">courses.students</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_subjects_courses" model="ir.actions.act_window">
+        <field name="name">Materias de cursos</field>
+        <field name="res_model">subjects.courses</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_grades_students" model="ir.actions.act_window">
+        <field name="name">Notas de los cursos</field>
+        <field name="res_model">grades.students</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_search_grades_students"/>
+    </record>
+
+    <menuitem id="menu_students"
+              action="action_students"
+              name="Estudiantes"
+              groups="students.students_group_students_access"
+    />
+    <menuitem id="menu_courses_students"
+              action="action_courses_students"
+              name="Cursos de estudiantes"
+              parent="menu_students"
+    />
+    <menuitem id="menu_subjects_courses"
+              action="action_subjects_courses"
+              name="Materias de cursos"
+              parent="menu_students"
+    />
+    <menuitem id="menu_grades_students"
+              action="action_grades_students"
+              name="Notas de los cursos"
+              parent="menu_students"
+    />
+</odoo>
 ```
+
+**Estructura resultante — árbol de menú:**
+```
+Estudiantes (menu_students, raíz — abre action_students)
+├── Cursos de estudiantes  (menu_courses_students)
+├── Materias de cursos     (menu_subjects_courses)
+└── Notas de los cursos    (menu_grades_students)
+```
+
+- **4 acciones, 4 modelos, 1 solo `groups=`** — el `groups="students.students_group_students_access"` va únicamente en `menu_students` (la raíz). Los 3 hijos no repiten el atributo — no hace falta, heredan la visibilidad del padre (ver nota de arriba y 8.2).
+- **`view_mode="list,form"`** — orden de las vistas: abre en lista primero, click en una fila pasa a form. Si se pusiera `"form,list"` abriría directo en form (típico para modelos que son casi singleton, no es el caso acá).
+- **`search_view_id`** — solo `action_grades_students` lo tiene, apuntando a `view_search_grades_students` (definida en `view_list_grades.xml`, ver 6.7). Los otros 3 modelos no tienen `<search>` propia — usan la búsqueda default que genera Odoo solo (busca por `name`/`display_name`), sin filtros ni searchpanel. Ojo con el **orden de carga** en `__manifest__.py`: el archivo que define la `<search>` referenciada tiene que cargar antes que `view_menu.xml`, o el `ref=` no la encuentra (ver 6.7).
+- Ninguna acción define `view_ids` explícito ni `domain` — usan las vistas list/form por defecto que Odoo busca automáticamente para ese `res_model` (la última definida sin `<field name="mode">` específico), y ven todos los registros sin filtro previo.
+
+### 7.2 Índice de vistas del módulo (`students`)
+
+| Archivo | Vista(s) que define | Modelo |
+|---|---|---|
+| `views/view_list.xml` | `view_list_students` (list) | `students.info` |
+| `views/view_form.xml` | `view_form_students` (form) + `inherit_res_partner` (hereda `base.view_partner_form`, agrega `is_teacher`) | `students.info` / `res.partner` |
+| `views/view_list_courses.xml` | `view_list_courses_students` (list) | `courses.students` |
+| `views/view_form_courses.xml` | `view_form_courses_students` (form, con `grade_ids` One2many embebido editable) | `courses.students` |
+| `views/view_list_subjects.xml` | `view_list_subjects_courses` (list) | `subjects.courses` |
+| `views/view_form_subjects.xml` | `view_form_subjects_courses` (form) | `subjects.courses` |
+| `views/view_list_grades.xml` | `view_list_grades_students` (list) + `view_search_grades_students` (search, con filtros y searchpanel, ver 6.7) | `grades.students` |
+| `views/view_form_grades.xml` | `view_form_grades_students` (form, con `<header>` statusbar + botón "Reprobar") | `grades.students` |
+| `views/view_form_wizard_courses.xml` | `view_form_wizard_courses` (form de wizard, ver 6.8) | `wizard.courses` |
+| `views/view_students_web.xml` | `view_students_web` (`<template>` QWeb, página pública servida desde el controller, ver 15.8) | — (no ligada a un modelo, es una página) |
+| `views/view_menu.xml` | 4 `ir.actions.act_window` + 4 `<menuitem>` (ver 7.1) | — |
+
+> `subjects.courses` y `grades.students` **no tienen `<search>` propia** — únicamente `grades.students` la tiene (`view_search_grades_students`). Si hiciera falta filtrar/agrupar en las otras listas, hay que agregar un `<record model="ir.ui.view">` con `<search>` igual que en `view_list_grades.xml` y enlazarlo con `search_view_id` en su acción correspondiente (ver 7.1).
 
 ---
 
@@ -1228,6 +1363,18 @@ access.mi.modelo,access_mi_modelo,model_mi_modelo,base.group_user,1,1,1,1
 - Permisos: `1` = sí, `0` = no (read, write, create, delete)
 - Controla **qué acciones** puede hacer un grupo sobre un modelo — no filtra **qué filas** ve (eso es 8.3, `ir.rule`).
 - `group_id:id` no tiene que ser un grupo base (`base.group_user`) — puede ser un grupo propio del módulo (ver 8.2). **Consistencia:** si un modelo requiere un grupo custom, todos los modelos relacionados del mismo módulo deberían requerir el mismo grupo (o uno que lo herede vía `implied_ids`) — dejar alguna fila en `base.group_user` mientras el resto pide un grupo específico abre un agujero (cualquier usuario interno accede a esa fila suelta aunque no vea el menú).
+
+**Ejemplo real completo** (`students/security/ir.model.access.csv`) — las 5 filas (4 modelos + 1 wizard) todas piden el mismo grupo custom (`students.students_group_students_access`, ver 8.2), coherente con la regla de consistencia de arriba:
+```csv
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_students_info,access.students.info,model_students_info,students.students_group_students_access,1,1,1,1
+access_courses_students,access.courses.students,model_courses_students,students.students_group_students_access,1,1,1,1
+access_subjects_courses,access.subjects.courses,model_subjects_courses,students.students_group_students_access,1,1,1,1
+access_grades_students,access.grades.students,model_grades_students,students.students_group_students_access,1,1,1,1
+access_wizard_courses,access.wizard.courses,model_wizard_courses,students.students_group_students_access,1,1,1,1
+```
+- El wizard (`wizard.courses`, `TransientModel`) **también necesita su fila** — sin ella el modal tira error de acceso al abrirse, aunque sea transitorio y no aparezca en ningún menú (ver 13).
+- `id` (primera columna, external id de la fila) es libre — por convención `access_<modelo_con_guion_bajo>`, distinto de `model_id:id` (que sí tiene que matchear exacto el nombre técnico del modelo destino).
 
 ### 8.2 Categorías y grupos — `ir.module.category` / `res.groups.privilege` / `res.groups`
 
@@ -1276,6 +1423,8 @@ Para armar niveles de permiso propios (que aparezcan como opciones en la pestañ
 ### 8.3 Reglas de registro — `ir.rule`
 
 `ir.model.access.csv` (8.1) controla **qué puede hacer** un grupo (leer/escribir/crear/borrar) — `ir.rule` controla **sobre qué filas**, agregando un domain automático a cada consulta para los usuarios de ese grupo.
+
+> Este proyecto todavía **no tiene ninguna `ir.rule`** — el grupo único `students_group_students_access` (ver 8.2) da acceso a todas las filas de los 4 modelos + wizard por igual, no hay segmentación por usuario ni por sucursal/branch. El ejemplo de abajo es teórico, para cuando haga falta (ej: un profesor que solo debería ver sus propios cursos).
 
 ```xml
 <record id="rule_students_own" model="ir.rule">
@@ -1704,3 +1853,206 @@ def _onchange_birth_date(self):
 El `return {"warning": {...}}` es lo que dispara el popup de aviso en el form. El `message` reusa el mismo string en inglés que el `@api.constrains` de 5.9 (`_("The student must be at least 8 years old.")`) — mismo `msgid` en el `.po`, comparten la traducción sin necesitar una entrada nueva (ver 12.1, "campos con el mismo `string=`... comparten una sola entrada").
 
 Ojo: esto **no reemplaza** el `@api.constrains` — el usuario puede cerrar el aviso y guardar igual si logra evadir el onchange (ej. pegando datos, o guardando por otro medio); el `constrains` en 5.9 es el que de verdad garantiza la regla en el servidor. Son complementarios: `onchange` = UX rápida, `constrains` = garantía real.
+
+---
+
+## 15. Controladores (HTTP Endpoints)
+
+Un controlador expone URLs propias del módulo (fuera del framework de vistas/acciones) — para APIs REST-like, webhooks, descargas de archivos, integraciones externas, etc.
+
+### 15.1 Qué es y cómo se registra
+
+```
+mi_modulo/
+└── controllers/
+    ├── __init__.py
+    └── students_controller.py
+```
+
+```python
+# controllers/__init__.py
+from . import students_controller
+```
+
+```python
+# mi_modulo/__init__.py
+from . import models, controllers
+```
+
+- Clase hereda de `odoo.http.Controller`.
+- Cada método expuesto lleva el decorador `@route(...)`.
+- **No va en `__manifest__.py`** (a diferencia de vistas/security) — se registra solo por importarse en `__init__.py`, Odoo escanea todas las clases `Controller` cargadas al iniciar.
+
+Ejemplo real (`students/controllers/students_controller.py`):
+```python
+from odoo.http import request, route, Controller
+import json
+
+class StudentsController(Controller):
+
+    @route("/api/students", auth="user", type="http", csrf=True, methods=["GET"])
+    def students(self):
+        return request.make_response(json.dumps({"name": "Jose"}))
+
+    @route("/api/new/students", auth="public", type="http", csrf=False, methods=["POST"])
+    def new_students(self, **kwargs):
+        name = kwargs.get("name")
+        return request.make_response(json.dumps({"name": name}))
+```
+> Prefijo `/api/` en las rutas — convención del proyecto para separar los endpoints tipo API (JSON, ver 15.2-15.6) de las rutas que sirven páginas web (ver 15.8, sin prefijo, ej. `/students/web`).
+
+### 15.2 `@route` — parámetros
+
+```python
+@route(route=None, type="http", auth="user", methods=None, csrf=True, cors=None, readonly=False, save_session=True, captcha=None, handle_params_access_error=None)
+```
+
+| Parámetro | Qué hace | Default |
+|---|---|---|
+| `route` | Path(s) que sirve el método. `str` o lista de `str` (varios paths → mismo método). Soporta variables tipo Werkzeug: `/students/<int:id>` | requerido |
+| `type` | `"http"` o `"jsonrpc"` — dónde busca los parámetros y cómo serializa la respuesta (ver 15.4) | `"http"` |
+| `auth` | Nivel de autenticación requerido (ver 15.3) | `"user"` (heredado si no se especifica) |
+| `methods` | Lista de verbos HTTP permitidos (`["GET"]`, `["POST"]`, `["GET", "POST"]`...) | todos permitidos si se omite |
+| `csrf` | Protección CSRF. Ver nota abajo | `True` para `type="http"`, `False` para `type="jsonrpc"` |
+| `cors` | Valor del header `Access-Control-Allow-Origin` (ej: `"*"`) | sin CORS |
+| `readonly` | `True` abre cursor en réplica read-only en vez de la DB primaria (para endpoints que solo leen, mejor performance) | `False` |
+| `save_session` | Si guarda cookie `session_id` y persiste la sesión en disco | `True` (`False` por defecto si `auth="bearer"`) |
+| `captcha` | Nombre de acción de captcha — valida la request contra un captcha antes de ejecutar | sin captcha |
+| `handle_params_access_error` | Callback custom `(Exception) -> Response` para manejar errores de acceso al resolver params de la URL | comportamiento default (403/404) |
+
+**`csrf`** — protege contra Cross-Site Request Forgery en requests que modifican estado. Con `csrf=True` el cliente debe mandar un token válido (lo inyecta Odoo en los forms propios) — por eso un endpoint público llamado desde afuera (otra app, `curl`, Postman) necesita `csrf=False`, si no, rechaza la request con 403. Regla práctica: `csrf=True` (default) para POST desde vistas/forms propios de Odoo; `csrf=False` para APIs públicas sin sesión de Odoo detrás — coherente con el ejemplo real de arriba (`/api/new/students` es `auth="public"` + `csrf=False`).
+
+### 15.3 `auth` — niveles de autenticación
+
+| Valor | Efecto |
+|---|---|
+| `"user"` | Requiere sesión logueada — corre con los permisos del usuario autenticado. Sin sesión válida, redirige a login (`http`) o rechaza (`jsonrpc`) |
+| `"public"` | Acceso con o sin sesión. Si no hay sesión, corre como el usuario compartido **Public** (permisos limitados de ese usuario, configurable en Ajustes) |
+| `"bearer"` | Autentica vía header `Authorization: Bearer <token>` (API key). Si falta el header, cae a comportamiento de `"user"` (requiere sesión) |
+| `"none"` | Sin autenticación, corre incluso sin DB seleccionada. Uso típico: framework/login mismo — casi nunca en módulos custom, no hay `request.env` disponible de forma normal |
+
+> En el ejemplo real: `/api/students` usa `auth="user"` (requiere login, coherente con ser info de un usuario) y `/api/new/students` usa `auth="public"` (pensado para que lo llame algo externo sin sesión de Odoo).
+
+### 15.4 `type` — http vs jsonrpc
+
+| | `type="http"` | `type="jsonrpc"` |
+|---|---|---|
+| Parámetros de entrada | query string (GET) o form-data/urlencoded (POST) → llegan como `**kwargs` en el método | body JSON-RPC → llegan en `request.params` (ya deserializado) |
+| Respuesta | el método arma la respuesta a mano (`request.make_response`, `request.make_json_response`, o devolver HTML/string directo) | Odoo serializa el `return` del método a JSON automáticamente, envuelto en el formato JSON-RPC |
+| CSRF default | `True` | `False` |
+| Uso típico | páginas web, descargas, APIs REST-like, webhooks | llamadas RPC internas (como las que hace el propio cliente web de Odoo contra `/web/dataset/call_kw`) |
+
+> `type="json"` es alias viejo de `type="jsonrpc"` — deprecado desde 19.0, tira warning. Usar `"jsonrpc"` en código nuevo.
+
+Ambos métodos del proyecto usan `type="http"` con respuesta manual — no hay ejemplo de `jsonrpc` todavía en este módulo.
+
+### 15.5 Recibir parámetros
+
+- **`type="http"`:** cualquier parámetro de query string o form-data cae en `**kwargs` del método — así lee `new_students(self, **kwargs)` el `name` que manda el POST (`kwargs.get("name")`). Params dentro del path (`/students/<int:id>`) llegan como argumento nombrado normal (`def students(self, id):`).
+- **`type="jsonrpc"`:** los parámetros del body JSON-RPC están en `request.params` (dict).
+- **Común a ambos:** `request.env` da acceso al ORM con los permisos del usuario autenticado (según `auth`) — mismo patrón que en un modelo (`request.env["students.info"].search(...)`). `request.session` para la sesión actual.
+
+### 15.6 Responder — make_response / make_json_response
+
+El proyecto arma la respuesta a mano con `json.dumps` + `request.make_response`:
+```python
+return request.make_response(json.dumps({"name": "Jose"}))
+```
+Odoo ya trae un helper que hace lo mismo pero pone el header `Content-Type: application/json` automático — evita tener que acordarse de ponerlo a mano:
+```python
+return request.make_json_response({"name": "Jose"})
+```
+
+| Método | Uso |
+|---|---|
+| `request.make_response(data, headers=None, cookies=None, status=200)` | Respuesta genérica — texto, HTML, o JSON ya serializado a mano. `data` es `str`/`bytes` |
+| `request.make_json_response(data, headers=None, cookies=None, status=200)` | Serializa `data` (dict/list) a JSON y setea `Content-Type` solo |
+| `request.not_found(description=None)` | Shortcut para 404 |
+| devolver un `str` directo (sin `make_response`) | Odoo lo envuelve como respuesta HTML 200 — válido para páginas simples |
+
+`status` permite devolver códigos distintos de 200 (`404`, `400`, `500`...) pasándolo explícito.
+
+### 15.7 Ejemplo real completo (endpoints JSON)
+
+```python
+from odoo.http import request, route, Controller
+from dateutil.relativedelta import relativedelta
+from odoo.fields import Date
+import json
+
+class StudentsController(Controller):
+
+    @route("/api/students", auth="user", type="http", csrf=True, methods=["GET"])
+    def students(self):
+        return request.make_response(json.dumps({"name": "Jose"}))
+
+    @route("/api/new/students", auth="public", type="http", csrf=False, methods=["POST"])
+    def new_students(self, **kwargs):
+        name = kwargs.get("name")
+
+        if name:
+            new_contact = request.env["res.partner"].sudo().create({"name": name})
+
+            birth_date = Date.today() - relativedelta(years=10)
+            new_student = request.env["students.info"].sudo().create({
+                "student_id": new_contact.id,
+                "birth_date": birth_date,
+            })
+
+            return request.make_response(json.dumps({
+                "message": f"New student {new_student.id}",
+                "student_id": int(new_student.id),
+                "contact_id": int(new_contact.id),
+                "status": 200
+            }))
+
+        return request.make_response(json.dumps({
+            "message": "Error al crear el nuevo usuario",
+            "status": 404
+        }))
+```
+
+- `GET /api/students` (con sesión activa) → `{"name": "Jose"}` hardcodeado.
+- `POST /api/new/students` con `name=Pedro` en el body → crea el `res.partner` (contacto) y después el `students.info` (registro académico) apuntando a ese contacto, con `birth_date` calculada a 10 años atrás (`Date.today() - relativedelta(years=10)`, ver nota abajo).
+- **`sudo()`** — necesario porque el endpoint es `auth="public"`: sin sesión, corre como el usuario Public, que normalmente no tiene permiso de `create` sobre `res.partner`/`students.info` vía `ir.model.access.csv` (ver 8.1, el grupo `students_group_students_access` no incluye al usuario Public). `sudo()` salta esa verificación de acceso — usarlo con cuidado en un endpoint público, es la puerta de entrada que decide qué se puede crear desde afuera sin login.
+- **Por qué `relativedelta` y no `date.replace(year=...)`:** restar años a mano con `replace` rompe si la fecha cae en 29 de febrero de un año no bisiesto (`ValueError: day is out of range for month`). `relativedelta(years=10)` maneja ese caso solo.
+- **Dos `create` en dos modelos distintos:** primero el contacto (`res.partner`, dueño de `name`), después el registro académico (`students.info`, dueño de `birth_date`/`student_id`) enlazado por `student_id=new_contact.id` — reflejan la relación `Many2one` del modelo real (`students.py:11`, ver 5.1). Crear `birth_date`/`student_id` directo sobre `res.partner` fallaría, esos campos no existen ahí.
+- Mejora pendiente: usar `request.make_json_response(...)` en vez de `json.dumps` + `make_response` (ver 15.6) — mismo resultado, menos código y el `Content-Type` queda explícito solo.
+
+### 15.8 Vistas personalizadas (QWeb) desde el controlador — páginas web
+
+Un controlador también puede servir una **página HTML completa** en vez de JSON — sirve para landing pages, portales, formularios propios fuera del framework de vistas/acciones (que solo sirve para el backoffice logueado).
+
+**Requiere el módulo `website` en `depends`:**
+```python
+"depends": ["base", "web", "website"],
+```
+`web` da el request/response framework básico (siempre presente vía `base`), `website` da el layout/menú/tema del sitio público (`website.layout`) y habilita el kwarg `website=True` en `@route`.
+
+**Template QWeb — va en un archivo `data` normal (sí en el manifest, a diferencia del controlador en sí, ver 15.1):**
+```xml
+<!-- views/view_students_web.xml -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <template id="view_students_web">
+        <t t-call="website.layout">
+            <h1>Vista de estudiante</h1>
+        </t>
+    </template>
+</odoo>
+```
+- `<template id="...">` es sintaxis corta para un `<record model="ir.ui.view">` con `type="qweb"` — Odoo lo expande solo.
+- `t-call="website.layout"` — envuelve el contenido con el header/footer/menú del sitio público (mismo look que cualquier página de `website`). Sin esto, la página sale "pelada" (sin nav, sin estilos del tema).
+- External ID completo (con prefijo de módulo): **`students.view_students_web`** — se arma `<nombre_módulo>.<id>`, igual que cualquier otro xmlid (ver 5.2 sobre `ref=`).
+
+**Controlador — `@route(..., website=True)` + `request.render(...)`:**
+```python
+@route("/students/web", auth="public", type="http", csrf=False, methods=["GET"], website=True)
+def students_web(self):
+    return request.render("students.view_students_web")
+```
+- **`website=True`** — kwarg extra de `@route` que agrega el módulo `website` (no está en la firma base de `odoo/http.py`, ver 15.2). Inyecta el contexto del sitio (idioma activo, website actual si hay multi-sitio, breadcrumbs) que `website.layout` necesita para renderizar bien. Sin esto, `t-call="website.layout"` puede fallar o rendear incompleto — falta el contexto que ese layout espera.
+- **`request.render(template_xmlid, values=None)`** — renderiza el QWeb y devuelve un `Response` HTML ya armado; no hace falta pasarlo por `make_response` (a diferencia de JSON, ver 15.6). `values` (opcional, dict) son las variables disponibles dentro del template vía `t-esc`/`t-out`/`t-if`.
+- Sin `route`/path con variables (`/students/<int:id>`), esta página es estática — para pasarle datos reales del modelo, armar el dict y pasarlo: `request.render("students.view_students_web", {"estudiantes": request.env["students.info"].sudo().search([])})`, y consumirlo en el template con `t-foreach="estudiantes"`.
+
+**Diferencia clave contra 15.7 (JSON):** acá `type="http"` sigue siendo el mismo (no hay un `type="html"` separado) — lo que cambia es *qué devuelve* el método (`request.render(...)` en vez de `request.make_response(json.dumps(...))`) y el kwarg `website=True`, que solo tiene sentido cuando el HTML depende del layout/tema del sitio. Una página HTML simple sin necesidad del chrome del sitio puede devolver un string directo sin `website=True` (ver tabla de 15.6).
