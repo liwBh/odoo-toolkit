@@ -37,7 +37,10 @@
    - 6.6 [group anidado, sheet, separator, notebook — cuándo usar cada uno](#66-group-anidado-sheet-separator-notebook--cuándo-usar-cada-uno)
    - 6.7 [Search view — filtros, group by, searchpanel](#67-search-view--filtros-group-by-searchpanel)
 7. [Menús y Acciones (view_menu.xml)](#7-menús-y-acciones-view_menuxml)
-8. [Seguridad — ir.model.access.csv](#8-seguridad--irmodelaccesscsv)
+8. [Seguridad](#8-seguridad)
+   - 8.1 [ir.model.access.csv — permisos CRUD por grupo](#81-irmodelaccesscsv--permisos-crud-por-grupo)
+   - 8.2 [Categorías y grupos — ir.module.category / res.groups.privilege / res.groups](#82-categorías-y-grupos--irmodulecategory--resgroupsprivilege--resgroups)
+   - 8.3 [Reglas de registro — ir.rule](#83-reglas-de-registro--irrule)
 9. [Scaffold — Crear módulo nuevo](#9-scaffold--crear-módulo-nuevo)
    - 9.1 [make new-module — módulo completo desde cero](#91-make-new-module--módulo-completo-desde-cero)
    - 9.2 [make new-view — list+form para un modelo ya escrito a mano](#92-make-new-view--listform-para-un-modelo-ya-escrito-a-mano)
@@ -57,6 +60,8 @@
     - 12.1 [Qué es y cómo funciona](#121-qué-es-y-cómo-funciona)
     - 12.2 [Setup inicial (primera vez en el proyecto)](#122-setup-inicial-primera-vez-en-el-proyecto)
     - 12.3 [Día a día (agregaste un campo o mensaje nuevo)](#123-día-a-día-agregaste-un-campo-o-mensaje-nuevo)
+13. [Wizards (TransientModel)](#13-wizards-transientmodel)
+14. [Decoradores `@api` — referencia rápida](#14-decoradores-api--referencia-rápida)
 
 ---
 
@@ -675,13 +680,13 @@ def _check_note_range(self):
 
 Ejemplo pedido — edad mínima 8 años (`students.info`, ya tiene `age` compute con `store=True`, ver 5.5):
 ```python
-@api.constrains("age")
+@api.constrains("birth_date")
 def _check_age_minima(self):
     for rec in self:
         if rec.age < 8:
             raise ValidationError("El estudiante debe tener al menos 8 años.")
 ```
-Como `age` es `compute` + `store=True`, se recalcula solo cuando cambia `birth_date` — y ese recálculo dispara el constrains automáticamente (misma cadena de dependencias que ya declaraste con `@api.depends`).
+Escucha `birth_date` (no `age`) porque conceptualmente la regla es sobre la fecha de nacimiento, no sobre el campo derivado — más legible. Funciona igual: cuando `birth_date` cambia, Odoo recalcula todos los `compute` pendientes (`age` incluido) **antes** de correr los `@api.constrains`, así que `rec.age` ya está actualizado adentro del método.
 
 - Ventaja: corre en `create` **y** `write`, sin tener que acordarte de repetir la validación en los dos lados.
 - Corre **después** de guardar el/los campo(s) en memoria pero antes de confirmar la transacción — si falla, hace rollback (no queda el registro a medias en DB).
@@ -713,7 +718,21 @@ def create(self, vals_list):
             raise ValidationError("El estudiante ya esta registrado.")
     return super().create(vals_list)
 ```
-- Otro gap real de este approach: solo valida en `create` — si alguien cambia `student_id` en un registro existente vía `write()` a uno ya usado por otro, esta validación no corre (habría que overridear `write` también, o usar 3).
+- Otro gap real de este approach: solo valida en `create` — si alguien cambia `student_id` en un registro existente vía `write()` a uno ya usado por otro, esta validación no corre (habría que overridear `write` también, o usar 3). Cubierto en este proyecto (`students.py`):
+```python
+def write(self, vals):
+    if "student_id" in vals:
+        student_id = int(vals.get("student_id"))
+        # excluir self — si no, reeditar sin cambiar de contacto puede
+        # encontrarse a sí mismo y tirar "ya registrado" por error
+        it_exist = self.env["students.info"].search(
+            [("student_id", "=", student_id), ("id", "not in", self.ids)], limit=1
+        )
+        if it_exist:
+            raise ValidationError(_("This student is already registered."))
+    return super().write(vals)
+```
+A diferencia de `create`, `write(self, vals)` **sí** recibe un solo dict (no lista) — esa es la firma real en Odoo, no tiene el problema de batch del punto anterior. Pero si no se excluye `self.ids` de la búsqueda, un `write` que no cambia el contacto (solo reenvía el mismo `student_id` sin modificarlo) se encuentra a sí mismo como "duplicado".
 
 **3. `models.Constraint(...)` — constraint SQL a nivel de tabla (antes `_sql_constraints`)**
 
@@ -727,6 +746,32 @@ _unique_student = models.Constraint(
 Habría resuelto el caso 2 (duplicados de `student_id`) sin código Python ni el bug de batch — la UNIQUE constraint aplica en create **y** write, a nivel DB. Desventaja: el mensaje de error es genérico si no se declara bien, y no sirve para reglas que necesiten lógica (como el rango de nota en 1, que depende de `scale`).
 
 **Cuál usar:** 3 para unicidad/checks simples de un campo o combinación fija de columnas. 1 para reglas que dependen de varios campos del mismo registro o necesitan lógica en Python. 2 solo cuando de verdad hace falta cruzar contra otros registros o hacer algo que 1 no puede expresar — y ahí sí, cuidado con la firma batch de `create`/`write`.
+
+**4. Override de `unlink` — bloquear borrado según relaciones**
+
+Mismo patrón que `create`/`write`, pero para impedir eliminar un registro si tiene datos relacionados. Ejemplo real (`students.py`):
+```python
+def unlink(self):
+    for item in self:
+        if item.grade_ids:
+            raise ValidationError(_("This student has a course in progress."))
+    return super().unlink()
+```
+`unlink(self)` no recibe `vals` — actúa sobre el/los registro(s) en `self`, por eso el `for item in self` (puede ser multi-record, a diferencia de `write` que sí sirve para validar antes de un solo `super().unlink()` al final).
+
+**5. Override de `copy` — modificar/limpiar campos al clonar**
+
+`copy(default=None)` es lo que corre al clickear "Duplicar". `default` es un dict de valores que pisan lo que se copiaría del original — útil para resetear campos que no tiene sentido clonar tal cual (ej: etiquetas, estados, fechas). Ejemplo real (`students.py`):
+```python
+def copy(self, default=None):
+    default = dict(default or {})
+    default["tag_ids"] = []  # resetear valores
+    return super().copy(default)
+```
+- `dict(default or {})` — copia defensiva, evita mutar un dict compartido y maneja bien `default=None`.
+- Asignar `[]` a un Many2many en `default` es válido — Odoo lo entiende como "sin registros relacionados" al crear el clon (confirmado en `copy_data`, `odoo/orm/models.py`).
+
+**Ojo si `create` está overrideado (como en 2):** `copy()` internamente llama a `self.create(...)` con los datos ya copiados — si el modelo tiene una validación de duplicados en `create` (como acá, por `student_id`), y el campo que causa el duplicado **no** se resetea en `default`, el clon nunca llega a completarse: `copy()` explota con la misma `ValidationError` de `create`, sin importar qué tan bien esté escrito el `copy()` en sí. Confirmado en este proyecto — clonar un estudiante tira `This student is already registered.` porque el clon copia el mismo `student_id` del original y `create()` lo detecta como duplicado. Si el objetivo es que el clon SÍ se cree (para que el usuario elija otro contacto después), hay que resetear también ese campo en `default`; si el objetivo es que no se pueda clonar (un estudiante = un contacto, no tiene sentido duplicarlo), este comportamiento ya es correcto tal cual está — no hace falta nada extra en `copy()`.
 
 ---
 
@@ -1158,9 +1203,20 @@ Solo soporta campos `Many2one` o `Selection` (`status_grade` es `Selection` — 
 </odoo>
 ```
 
+**`groups="modulo.xmlid_del_grupo"`** — restringe qué grupo(s) ven ese `<menuitem>` (varios separados por coma = OR). Ponerlo en el menú **raíz** alcanza para esconder toda la rama de submenús aunque ellos no tengan `groups=` propio — Odoo arma el árbol de menús recursivamente desde la raíz, así que un hijo sin padre visible queda huérfano y se filtra igual (ver 8.2). Ejemplo real (`view_menu.xml`):
+```xml
+<menuitem id="menu_students"
+          action="action_students"
+          name="Estudiantes"
+          groups="students.students_group_students_access"
+/>
+```
+
 ---
 
-## 8. Seguridad — ir.model.access.csv
+## 8. Seguridad
+
+### 8.1 ir.model.access.csv — permisos CRUD por grupo
 
 ```csv
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
@@ -1170,6 +1226,69 @@ access.mi.modelo,access_mi_modelo,model_mi_modelo,base.group_user,1,1,1,1
 - `model_id:id` → `model_` + nombre del modelo con `.` reemplazado por `_`
 - Ejemplo: modelo `courses.info` → `model_courses_info`
 - Permisos: `1` = sí, `0` = no (read, write, create, delete)
+- Controla **qué acciones** puede hacer un grupo sobre un modelo — no filtra **qué filas** ve (eso es 8.3, `ir.rule`).
+- `group_id:id` no tiene que ser un grupo base (`base.group_user`) — puede ser un grupo propio del módulo (ver 8.2). **Consistencia:** si un modelo requiere un grupo custom, todos los modelos relacionados del mismo módulo deberían requerir el mismo grupo (o uno que lo herede vía `implied_ids`) — dejar alguna fila en `base.group_user` mientras el resto pide un grupo específico abre un agujero (cualquier usuario interno accede a esa fila suelta aunque no vea el menú).
+
+### 8.2 Categorías y grupos — `ir.module.category` / `res.groups.privilege` / `res.groups`
+
+Para armar niveles de permiso propios (que aparezcan como opciones en la pestaña "Derechos de acceso" del usuario, `Ajustes → Usuarios`), hace falta una cadena de 3 modelos — no alcanza con crear el grupo solo. En Odoo 19 esta cadena cambió respecto a versiones viejas: antes `res.groups` tenía `category_id` directo; ahora va a través de `res.groups.privilege`.
+
+```xml
+<!-- 1. Categoría — el título de la sección en "Derechos de acceso" -->
+<record id="students_category_security" model="ir.module.category">
+    <field name="name">Estudiantes</field>
+    <field name="description">Grupo de seguridad para el modulo Estudiantes</field>
+</record>
+
+<!-- 2. Privilegio — agrupa los niveles de esa categoría -->
+<record id="students_privilege" model="res.groups.privilege">
+    <field name="name">Estudiantes</field>
+    <field name="category_id" ref="students.students_category_security"/>
+</record>
+
+<!-- 3. Grupo — el nivel de permiso en sí, el que se asigna a usuarios -->
+<record id="students_group_students_access" model="res.groups">
+    <field name="name">Acceso a estudiantes</field>
+    <field name="privilege_id" ref="students.students_privilege"/>
+</record>
+```
+- Sin el `res.groups.privilege` intermedio, la categoría queda vacía (sin niveles para elegir) — es lo que pasa si solo creás la `ir.module.category` y el `res.groups` no tiene forma de asociarse a ella (`res.groups` ya no tiene `category_id` propio en Odoo 19, confirmado en `odoo/addons/base/models/res_groups.py`).
+- **Jerarquía entre niveles** (ej. "Administrador" incluye todo lo de "Usuario"): usar `implied_ids` en el grupo de nivel más alto:
+```xml
+<field name="implied_ids" eval="[(4, ref('students_group_students_access'))]"/>
+```
+- **Bug real que nos pasó:** si cambiás el `model` de un `<record id="...">` ya cargado antes (ej. de `res.groups.privilege` a `res.groups`, reusando el mismo `id`), Odoo tira `ParseError: found record of different model` — el xmlid queda pegado al modelo original la primera vez que se crea. Fix: usar un `id=` nuevo para el registro que cambió de modelo, no reciclar el viejo.
+- **Ocultar el menú raíz no alcanza solo** — confirmado en el código real de carga de menús (`odoo/addons/base/models/ir_ui_menu.py`, `load_menus`): el árbol se arma recursivamente desde la raíz, así que poner `groups="..."` en el `<menuitem>` de más arriba (`menu_students`) sí esconde toda la rama en la UI (los hijos quedan huérfanos y se filtran, aunque ellos mismos no tengan `groups=`). Pero eso es solo visibilidad de menú — el acceso real al modelo lo sigue controlando 8.1. Si el objetivo es "solo este grupo toca estos datos", hay que propagar el mismo `group_id` a **todas** las filas de `ir.model.access.csv` del módulo, no solo al modelo de entrada — si alguna fila queda en `base.group_user`, cualquier usuario interno puede acceder a ese modelo por otra vía (URL directa, otro menú, API) aunque no vea el menú.
+
+**⚠ Después de crear el grupo, hay que asignarlo a un usuario — no queda nadie adentro por default.** Un grupo nuevo (`res.groups`) se crea vacío; si nadie lo tiene marcado, **nadie** ve el menú ni pasa el `ir.model.access.csv` — ni siquiera el admin, a menos que se lo asignes.
+
+- **Para el admin, sí se puede automatizar** — precargarlo como miembro directo en la definición XML del grupo, vía el campo `user_ids` (`Many2many` a `res.users`):
+```xml
+<record id="group_students_access" model="res.groups">
+    <field name="name">Acceso a estudiantes</field>
+    <field name="privilege_id" ref="students.students_privilege"/>
+    <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+</record>
+```
+`scripts/new_module.sh` ya lo genera así por default para cualquier módulo nuevo (ver 9.1) — el admin nunca queda bloqueado afuera de su propia app recién instalada.
+- **Para cualquier otro usuario, no hay forma automática** — y es a propósito: es un control de acceso, tiene que ser una decisión manual de quién entra. Se activa a mano desde Ajustes → Usuarios → pestaña "Derechos de acceso" (ver el paso a paso ya cubierto arriba en esta sección), o por código/import puntual (`env['res.users'].browse(uid).write({'group_ids': [(4, group.id)]})` si hace falta asignarlo en bulk desde un script).
+
+### 8.3 Reglas de registro — `ir.rule`
+
+`ir.model.access.csv` (8.1) controla **qué puede hacer** un grupo (leer/escribir/crear/borrar) — `ir.rule` controla **sobre qué filas**, agregando un domain automático a cada consulta para los usuarios de ese grupo.
+
+```xml
+<record id="rule_students_own" model="ir.rule">
+    <field name="name">Estudiantes: ver solo los propios</field>
+    <field name="model_id" ref="model_students_info"/>
+    <field name="groups" eval="[(4, ref('students_group_students_access'))]"/>
+    <field name="domain_force">[('student_id.user_ids', 'in', [user.id])]</field>
+</record>
+```
+- `domain_force` es un domain (ver 5.8) evaluado con `user` disponible en el contexto (el `res.users` actual).
+- `groups` vacío = la regla aplica a **todos** los usuarios, sin excepción (regla global). Con `groups` seteado, aplica solo a esos grupos.
+- Reglas de distintos grupos sobre el mismo modelo se combinan con OR entre sí, y con AND contra las reglas globales — no hace falta escribir la lógica de combinación a mano.
+- `perm_read`/`perm_write`/`perm_create`/`perm_unlink` (default `True` los 4) — se puede limitar la regla a un subconjunto de esas acciones, no tiene que aplicar a las 4 siempre.
 
 ---
 
@@ -1197,10 +1316,15 @@ extra_addons/students/
 ├── views/
 │   ├── view_list.xml
 │   ├── view_form.xml
-│   └── view_menu.xml
+│   └── view_menu.xml           # menuitem con groups="students.group_students_access"
 └── security/
-    └── ir.model.access.csv
+    ├── security.xml            # categoría + privilegio + grupo propio (ver 8.2)
+    └── ir.model.access.csv     # ya usa el grupo de arriba, no base.group_user
 ```
+
+El grupo de seguridad (`ir.module.category` → `res.groups.privilege` → `res.groups`, patrón de 8.2) se genera **automático** para todo módulo nuevo — no hace falta armarlo a mano cada vez como hicimos con `students`. Nombres de xmlid generados: `category_<módulo>_security`, `privilege_<módulo>`, `group_<módulo>_access`. El `<menuitem>` raíz y la única fila de `ir.model.access.csv` ya vienen con ese grupo — si agregás modelos nuevos a mano después (`new-view`, o escritos manualmente), acordate de usar el mismo `group_id:id` en sus filas del CSV (ver nota de consistencia en 8.1).
+
+`base.user_admin` queda precargado como miembro del grupo (`user_ids` en la definición del `res.groups`, ver 8.2) — así el admin no se bloquea a sí mismo apenas instala el módulo nuevo. **Cualquier otro usuario necesita que lo actives a mano** desde Ajustes → Usuarios (ver 8.2) — no hay forma de automatizarlo para usuarios arbitrarios, es a propósito.
 
 También agrega el módulo a `modules.txt` (usado por `make install` / `make update`, ver sección 2.2).
 
@@ -1235,6 +1359,8 @@ make new-view model=courses.students module=students editable=1   # O2M embebido
 **Si las vistas YA existen — modo update aditivo:** el comando busca entre los XML de `views/` cuál ya declara ese modelo (no asume ningún nombre de archivo), y agrega **solo** los campos del modelo que todavía no aparecen ahí — nunca borra, reordena ni toca `options`/`readonly`/separators que hayas puesto a mano. Si no falta ningún campo, no toca el archivo.
 
 También agrega, si faltan: la fila del modelo en `ir.model.access.csv`, las líneas de los archivos nuevos en `__manifest__.py`, y el `<record ir.actions.act_window>` + `<menuitem parent="menu_<module>">` en `view_menu.xml`.
+
+La fila de `ir.model.access.csv` usa el grupo propio del módulo (`<module>.group_<module>_access`, ver 8.2/9.1) si el módulo tiene `security/security.xml` con ese patrón — si no lo tiene (módulo viejo, o armado a mano sin el scaffold), cae a `base.group_user`. Probado end-to-end: modelo nuevo agregado a un módulo con el grupo ya armado → la fila nueva sale con el grupo correcto, no con `base.group_user`.
 
 > Script: `scripts/new_view.py`. Necesita DB corriendo (usa el registry de Odoo para leer los campos reales del modelo, no parsea el `.py`).
 
@@ -1426,7 +1552,11 @@ Documentación oficial sobre temas visuales del **sitio web** (Website builder) 
 Cada módulo tiene una carpeta `i18n/` con un archivo `.po` por idioma (ej: `es_419.po`, `en_US.po`). Cada `.po` mapea `msgid` (el string tal cual está escrito en el código) → `msgstr` (su traducción). No hay que "compilar" nada — Odoo lee el `.po` e importa las traducciones directo a la DB.
 
 **Qué es traducible y cómo se marca — dos tipos, con comportamiento distinto:**
-- `string=` de un field (`fields.Char(string="Nombre")`) y cualquier `string="..."` en las vistas XML: se traduce solo, no hace falta marcar nada. Se guarda en la **DB** (ej. `ir.model.fields.field_description`) — `trans-import` sí las carga.
+- `string=` de un field (`fields.Char(string="Nombre")`) y cualquier `string="..."` en las vistas XML (`<button>`, `<page>`, `<group>`, `<separator>`, etc.): se traducen solos, no hace falta marcar nada — ninguno de los dos necesita `_()` (eso es solo para Python). Se guardan en la **DB**, y `trans-import` los carga a ambos — pero con una etiqueta distinta en el `.po` según de dónde salen:
+  - `string=` de field → `model:ir.model.fields,field_description:...` (el label del campo, en `ir.model.fields`).
+  - `string=` de vista (botón, page, etc.) → `model_terms:ir.ui.view,arch_db:...` (un fragmento de texto dentro del XML completo de la vista, `ir.ui.view.arch_db`) — técnicamente distinto porque no es "todo el campo" lo que se traduce, sino un pedazo de texto adentro de un campo más grande (el arch XML).
+  - Mismo flujo Makefile para los dos: `trans-sync` → completar `msgstr` → `trans-import`.
+- **Campos de modelos distintos con el mismo `string=` comparten una sola entrada en el `.po`.** Si `students.info.student_id` y `wizard.courses.student_id` tienen los dos `string="Student"`, el export los agrupa en un único `msgid "Student"` con varias líneas `#:` (una por campo) — y al importar, la **misma** traducción se aplica a todos los campos listados ahí. No hace falta traducir cada uno por separado si ya comparten texto exacto (confirmado en `TranslationFileReader.__iter__`, `odoo/tools/translate.py:849` — itera por ocurrencia pero usa el mismo `msgstr` del entry para todas).
 - Mensajes en Python (errores, etc.): hay que envolverlos con `_()` para que Odoo los detecte:
 ```python
 from odoo.tools.translate import _
@@ -1471,3 +1601,106 @@ Repetir 2-5 cada vez que se agregan strings traducibles nuevos.
 **Detalle a tener en cuenta si editás el `.po` a mano:** cada entrada necesita el comentario `#. module: <nombre>` arriba del `msgid` (Odoo lo agrega solo al exportar/scaffoldear) — si armás una entrada nueva vos y te olvidás esa línea, el `import`/`update-module` tira `AttributeError`. Por eso el flujo de arriba siempre parte de un `.po` generado por `trans-export`/`trans-scaffold`, nunca escrito desde cero a mano.
 
 **Error más común al probar traducciones nuevas:** instalar/tener el idioma en la DB no cambia el idioma de usuarios ya existentes — cada `res.users` tiene su propio campo `lang`, sigue en el idioma que tenía hasta que se cambie a mano (Preferencias → Idioma, o `env['res.users'].write({'lang': 'es_419'})`).
+
+---
+
+## 13. Wizards (TransientModel)
+
+Un wizard es un modal (`target: "new"`) para correr una acción puntual — no es un registro de negocio persistente.
+
+- **Modelo:** hereda de `models.TransientModel` (no `models.Model`). Sus registros son temporales, Odoo los borra solo con un cron (`_transient_max_hours`, default ~1h) — no están pensados para consultarse después.
+- **Cómo se abre:** un botón (`type="object"`) en un registro real, cuyo método Python devuelve un dict `ir.actions.act_window` con `"target": "new"` — eso lo renderiza como popup en vez de navegar a otra pantalla.
+- **Precargar datos:** el prefijo `default_<campo>` en el `context` de esa acción llena los campos del wizard al abrirlo, así "sabe" desde qué registro se lo llamó.
+- **Botones del wizard:** `type="object"` llama un método del wizard mismo, que ahí sí escribe sobre el modelo real. Si el método no devuelve nada, el modal se cierra solo. `special="cancel"` cierra sin ejecutar nada.
+- Igual que cualquier modelo, necesita su fila en `ir.model.access.csv` para ser usable.
+
+**Ejemplo real de este proyecto** (`grades.students` → botón "Reprobar" → wizard `wizard.courses`):
+
+```python
+# grades.py — abre el wizard con grade_id/student_id precargados
+def disapprove(self):
+    return {
+        "name": "Reprobar",
+        "type": "ir.actions.act_window",
+        "view_mode": "form",
+        "res_model": "wizard.courses",
+        "target": "new",
+        "context": {
+            "default_student_id": self.student_id.id,
+            "default_grade_id": self.id,
+        },
+    }
+```
+```python
+# wizard/wizard_courses.py
+class WizardCourses(models.TransientModel):
+    _name = "wizard.courses"
+    _description = "Reprobar curso"
+
+    student_id = fields.Many2one(comodel_name="students.info", required=True)
+    grade_id = fields.Many2one(comodel_name="grades.students", required=True)
+    note = fields.Float(string="Nota", default=0)
+
+    def disapprove(self):
+        if not self.grade_id:
+            raise ValidationError(_("Course is required"))
+        self.grade_id.write({"note": self.note, "status_grade": "reprobado"})
+```
+```xml
+<!-- views/view_form_wizard_courses.xml -->
+<form>
+    <group>
+        <field name="student_id" readonly="1" options="{'no_open': True}"/>
+        <field name="grade_id" readonly="1" options="{'no_open': True}"/>
+        <field name="note"/>
+    </group>
+    <footer>
+        <button string="Reprobar" type="object" name="disapprove" class="btn-primary"/>
+        <button string="Cancelar" special="cancel" class="btn-secondary"/>
+    </footer>
+</form>
+```
+
+`readonly` + `options="{'no_open': True}"` en `student_id`/`grade_id` porque vienen precargados por contexto — no tiene sentido que el usuario los edite ni navegue al registro relacionado (ver 5.7).
+
+**El `name` del `<record model="ir.ui.view">` no es el título del popup** — es solo un label técnico interno (visible en Ajustes → Técnico → Vistas). El título que ve el usuario sale del `"name"` del dict de acción (`"Reprobar"` en `disapprove()`).
+
+Otros wizards ya usados en este proyecto sin llamarlos así: los de exportar/importar traducciones (`base.language.export`/`base.language.import`, ver sección 12).
+
+---
+
+## 14. Decoradores `@api` — referencia rápida
+
+Los que ya usamos están explicados en detalle donde se aplican — acá solo el resumen + dónde mirar. Se agregan un par más comunes que todavía no tocamos, para tener el panorama completo.
+
+| Decorador | Para qué | Detalle |
+|---|---|---|
+| `@api.depends(*campos)` | Recalcula un campo `compute` cuando cambian los campos listados | Ver 5.5 |
+| `@api.constrains(*campos)` | Corre una validación (`ValidationError`) después de `create`/`write`, si cambió alguno de los campos listados | Ver 5.9 punto 1 |
+| `@api.model_create_multi` | Declara que `create(self, vals_list)` es batch-aware — Odoo siempre pasa una lista de dicts, incluso para 1 registro | Ver 5.9 punto 2 |
+| `@api.model` | Método que no necesita un registro específico de `self` (no itera, no usa `self.campo`) — se puede llamar sin ids, típico en helpers o defaults dinámicos | No usado todavía en este proyecto |
+| `@api.onchange(*campos)` | Corre **en el cliente**, con el form abierto, apenas el usuario cambia uno de los campos listados — antes de guardar nada en DB. Sirve para sugerir/ajustar otros campos en vivo | Ver ejemplo abajo |
+
+**Regla rápida para no confundir `constrains` con `onchange`:** `@api.constrains` corre en el servidor, después de intentar guardar (puede bloquear el save). `@api.onchange` corre en el navegador, mientras se edita, antes de guardar (solo sugiere/ajusta, no puede impedir guardar por sí solo).
+
+**Ejemplo — avisar en vivo si `birth_date` da menos de 8 años** (mismo chequeo que `_check_age_minima`, ver 5.9 punto 1, pero como aviso inmediato mientras se tipea, no como bloqueo al guardar):
+```python
+@api.onchange("birth_date")
+def _onchange_birth_date(self):
+    if not self.birth_date:
+        return
+    today = date.today()
+    age = today.year - self.birth_date.year - (
+        (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
+    )
+    if age < 8:
+        return {
+            "warning": {
+                "title": _("Edad mínima"),
+                "message": _("The student must be at least 8 years old."),
+            }
+        }
+```
+El `return {"warning": {...}}` es lo que dispara el popup de aviso en el form. El `message` reusa el mismo string en inglés que el `@api.constrains` de 5.9 (`_("The student must be at least 8 years old.")`) — mismo `msgid` en el `.po`, comparten la traducción sin necesitar una entrada nueva (ver 12.1, "campos con el mismo `string=`... comparten una sola entrada").
+
+Ojo: esto **no reemplaza** el `@api.constrains` — el usuario puede cerrar el aviso y guardar igual si logra evadir el onchange (ej. pegando datos, o guardando por otro medio); el `constrains` en 5.9 es el que de verdad garantiza la regla en el servidor. Son complementarios: `onchange` = UX rápida, `constrains` = garantía real.

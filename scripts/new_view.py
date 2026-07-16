@@ -207,7 +207,19 @@ def ensure_manifest(app_dir, new_files):
             f.write(text)
 
 
-def ensure_access(app_dir, model_name):
+def module_security_group(app_dir, module):
+    """Si el módulo tiene su propio grupo (patrón de new_module.sh / 8.2 en
+    Apuntes.md), devuelve su xmlid completo. Si no, cae a base.group_user."""
+    security_path = os.path.join(app_dir, "security", "security.xml")
+    group_id = f"group_{module}_access"
+    if os.path.isfile(security_path):
+        with open(security_path) as f:
+            if f'id="{group_id}"' in f.read():
+                return f"{module}.{group_id}"
+    return "base.group_user"
+
+
+def ensure_access(app_dir, module, model_name):
     path = os.path.join(app_dir, "security", "ir.model.access.csv")
     suffix = model_suffix(model_name)
     model_ref = f"model_{suffix}"
@@ -215,7 +227,8 @@ def ensure_access(app_dir, model_name):
         text = f.read()
     if model_ref in text:
         return
-    line = f"access_{suffix},access.{model_name},{model_ref},base.group_user,1,1,1,1\n"
+    group = module_security_group(app_dir, module)
+    line = f"access_{suffix},access.{model_name},{model_ref},{group},1,1,1,1\n"
     if not text.endswith("\n"):
         text += "\n"
     text += line
@@ -289,7 +302,7 @@ def main():
         if new_files:
             ensure_manifest(app_dir, new_files)
 
-        ensure_access(app_dir, args.model)
+        ensure_access(app_dir, args.module, args.model)
         ensure_menu(app_dir, args.module, args.model, label)
 
     print(f"Listo: {list_path}{' (nuevo)' if list_created else ' (actualizado)'}")

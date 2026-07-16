@@ -45,6 +45,7 @@ cat > "$DIR/__manifest__.py" <<EOF
     "application": True,
     "depends": ["base"],
     "data": [
+        "security/security.xml",
         "security/ir.model.access.csv",
         "views/view_list.xml",
         "views/view_form.xml",
@@ -112,14 +113,40 @@ cat > "$DIR/views/view_menu.xml" <<EOF
     <menuitem id="menu_$MOD"
               action="action_$MOD"
               name="$DESC"
+              groups="$MOD.group_${MOD}_access"
     />
+</odoo>
+EOF
+
+cat > "$DIR/security/security.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <!-- Categoria de seguridad -->
+    <record id="category_${MOD}_security" model="ir.module.category">
+        <field name="name">$DESC</field>
+        <field name="description">Grupo de seguridad para el modulo $DESC</field>
+    </record>
+
+    <!-- Grupo de privilegios -->
+    <record id="privilege_$MOD" model="res.groups.privilege">
+        <field name="name">$DESC</field>
+        <field name="category_id" ref="$MOD.category_${MOD}_security"/>
+    </record>
+
+    <!-- Grupo de seguridad -->
+    <record id="group_${MOD}_access" model="res.groups">
+        <field name="name">Acceso a $DESC</field>
+        <field name="privilege_id" ref="$MOD.privilege_$MOD"/>
+        <!-- admin queda adentro del grupo para no bloquearlo al instalar -->
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+    </record>
 </odoo>
 EOF
 
 MODEL_US="${MODEL//./_}"
 cat > "$DIR/security/ir.model.access.csv" <<EOF
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_$MODEL_US,access.$MODEL,model_$MODEL_US,base.group_user,1,1,1,1
+access_$MODEL_US,access.$MODEL,model_$MODEL_US,$MOD.group_${MOD}_access,1,1,1,1
 EOF
 
 if [ -f "modules.txt" ]; then
