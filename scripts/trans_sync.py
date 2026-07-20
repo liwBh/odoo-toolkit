@@ -10,12 +10,18 @@ from pathlib import Path
 
 import polib
 
+from _addons import find_module_dir
+
 ROOT = Path.cwd()
 PYTHON = ROOT / ".venv" / "bin" / "python"
 
 
 def sync_module(conf, db, lang, module):
-    po_path = ROOT / "extra_addons" / module / "i18n" / f"{lang}.po"
+    app_dir = find_module_dir(module)
+    if not app_dir:
+        print(f"[trans-sync] módulo '{module}' no encontrado en addons_path — salteado")
+        return
+    po_path = app_dir / "i18n" / f"{lang}.po"
 
     old_translations = {}
     if po_path.exists():

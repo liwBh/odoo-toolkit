@@ -21,6 +21,12 @@ ODOO_BIN = ROOT / "odoo-bin"
 WATCHED_SUFFIXES = {".py", ".xml", ".csv", ".po", ".css", ".scss", ".js"}
 DEBOUNCE_SECONDS = 1.5
 
+RESET = "\033[0m"
+BOLD = "\033[1m"
+YELLOW = "\033[33m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+
 server_proc = None
 lock = threading.Lock()
 apply_lock = threading.Lock()
@@ -92,17 +98,17 @@ def apply_changes(reason):
         if not mods:
             print(f"[dev] modules.txt vacío o inexistente — nada que actualizar ({reason})")
             return
-        print(f"[dev] cambio detectado ({reason}) — deteniendo server")
+        print(f"{YELLOW}{BOLD}[dev] ⏳ ACTUALIZANDO ({reason}) — deteniendo server...{RESET}")
         stop_server()
-        print(f"[dev] aplicando -u {','.join(mods)}")
+        print(f"{YELLOW}[dev] aplicando -u {','.join(mods)}{RESET}")
         result = subprocess.run(
             [str(PYTHON), str(ODOO_BIN), "-c", str(CONF), "-u", ",".join(mods), "--stop-after-init"],
             cwd=str(ROOT),
         )
         if result.returncode != 0:
-            print(f"[dev] ERROR al actualizar módulos (exit {result.returncode}) — server NO se levanta. Corregí y guardá de nuevo.")
+            print(f"{RED}{BOLD}[dev] ✗ ERROR al actualizar módulos (exit {result.returncode}) — server NO se levanta. Corregí y guardá de nuevo.{RESET}")
             return
-    print("[dev] update ok — levantando server")
+    print(f"{GREEN}{BOLD}[dev] ✓ ACTUALIZACIÓN COMPLETA — levantando server{RESET}")
     start_server()
 
 
