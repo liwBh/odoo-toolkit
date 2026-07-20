@@ -5,7 +5,8 @@ MOD="${1:-}"
 DESC="${2:-$MOD}"
 CATEGORY="${3:-Uncategorized}"
 AUTHOR="${4:-}"
-ADDONS_DIR="extra_addons"
+PYTHON="${PYTHON:-.venv/bin/python}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -z "$MOD" ]; then
     echo "Uso: make new-module name=nombre_modulo [description=\"Descripción\"] [category=\"Categoría\"] [author=\"Autor\"]"
@@ -17,7 +18,11 @@ if [[ ! "$MOD" =~ ^[a-z][a-z0-9_]*$ ]]; then
     exit 1
 fi
 
-DIR="$ADDONS_DIR/$MOD"
+DIR="$("$PYTHON" "$SCRIPT_DIR/_addons.py" new "$MOD")"
+if [ -z "$DIR" ]; then
+    echo "Error: no se pudo resolver directorio destino vía addons_path"
+    exit 1
+fi
 if [ -e "$DIR" ]; then
     echo "Error: $DIR ya existe"
     exit 1
@@ -30,9 +35,14 @@ else
 fi
 CLASS=$(echo "$MOD" | awk -F'_' '{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1)) substr($i,2)}}1' OFS='')
 
-mkdir -p "$DIR/models" "$DIR/views" "$DIR/security"
+mkdir -p "$DIR/models" "$DIR/views" "$DIR/security" "$DIR/controllers" "$DIR/wizards" \
+         "$DIR/static/src/js" "$DIR/static/src/css" "$DIR/static/src/xml"
 
-echo "from . import models" > "$DIR/__init__.py"
+cat > "$DIR/__init__.py" <<EOF
+from . import models
+from . import controllers
+from . import wizards
+EOF
 
 cat > "$DIR/__manifest__.py" <<EOF
 {
@@ -43,7 +53,7 @@ cat > "$DIR/__manifest__.py" <<EOF
     "author": "$AUTHOR",
     "version": "19.0.1.0.0",
     "application": True,
-    "depends": ["base"],
+    "depends": ["base", "web", "website"],
     "data": [
         "security/security.xml",
         "security/ir.model.access.csv",
@@ -51,10 +61,100 @@ cat > "$DIR/__manifest__.py" <<EOF
         "views/view_form.xml",
         "views/view_menu.xml",
     ],
+    "assets": {
+        "web.assets_frontend": [
+            "$MOD/static/src/js/**/*.js",
+            "$MOD/static/src/css/**/*.css",
+            "$MOD/static/src/xml/**/*.xml",
+        ]
+    },
 }
 EOF
 
 echo "from . import $MOD" > "$DIR/models/__init__.py"
+
+touch "$DIR/controllers/__init__.py" "$DIR/wizards/__init__.py"
+
+cat > "$DIR/controllers/$MOD.py" <<EOF
+# CRUD base para $MODEL — comentado, no registra ninguna ruta hasta que lo actives
+# (y esta carpeta no se importa sola: agregá "from . import $MOD" a controllers/__init__.py
+# cuando lo uses). Descomentá el/los métodos que necesites y ajustá auth/type/csrf
+# según el caso real (ver Apuntes.md sección 15).
+#
+# import json
+#
+# from odoo.http import request, route, Controller
+#
+#
+# class ${CLASS}Controller(Controller):
+#
+#     @route("/$MOD", auth="user", type="http", methods=["GET"])
+#     def ${MOD}_list(self, **kwargs):
+#         records = request.env["$MODEL"].search([])
+#         return request.make_response(
+#             json.dumps([{"id": r.id, "name": r.name} for r in records])
+#         )
+#
+#     @route("/$MOD/<int:record_id>", auth="user", type="http", methods=["GET"])
+#     def ${MOD}_get(self, record_id, **kwargs):
+#         record = request.env["$MODEL"].browse(record_id)
+#         if not record.exists():
+#             return request.make_response(json.dumps({"error": "not found"}), status=404)
+#         return request.make_response(json.dumps({"id": record.id, "name": record.name}))
+#
+#     @route("/$MOD", auth="user", type="http", csrf=False, methods=["POST"])
+#     def ${MOD}_create(self, **kwargs):
+#         record = request.env["$MODEL"].create({"name": kwargs.get("name")})
+#         return request.make_response(json.dumps({"id": record.id}), status=201)
+#
+#     @route("/$MOD/<int:record_id>", auth="user", type="http", csrf=False, methods=["DELETE"])
+#     def ${MOD}_delete(self, record_id, **kwargs):
+#         request.env["$MODEL"].browse(record_id).unlink()
+#         return request.make_response(json.dumps({"status": "deleted"}))
+#
+#     # Página website (request.render) — necesita un template QWeb server-side
+#     # (<odoo><template id="...">, no el stub OWL de static/src/xml/templates.xml).
+#     # Creá views/page_$MOD.xml con <template id="page_$MOD"> (mismo id que el
+#     # archivo, ver 9.1/15.8) y agregalo a "data" antes de descomentar esto.
+#     @route("/$MOD/view", auth="public", type="http", csrf=False, website=True)
+#     def ${MOD}_view(self, **kwargs):
+#         return request.render("$MOD.page_$MOD")
+EOF
+
+cat > "$DIR/static/src/js/main.js" <<EOF
+/** @odoo-module **/
+
+// Base rápida para un componente OWL público — comentado, no registra nada hasta
+// que lo actives. Usa el template stub de static/src/xml/templates.xml ($MOD.placeholder)
+// y se monta con <owl-component name="$MOD.component"/> en cualquier vista website
+// (ver Apuntes.md sección 15.8/9.1).
+//
+// import { Component } from "@odoo/owl";
+// import { registry } from "@web/core/registry";
+//
+// export class ${CLASS}Component extends Component {
+//     static template = "$MOD.placeholder";
+//
+//     setup() {
+//         console.log("Loading component...");
+//     }
+// }
+//
+// registry.category("public_components").add("$MOD.component", ${CLASS}Component);
+EOF
+
+cat > "$DIR/static/src/css/main.css" <<EOF
+/* $DESC */
+EOF
+
+cat > "$DIR/static/src/xml/templates.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates>
+    <t t-name="$MOD.placeholder">
+        <div/>
+    </t>
+</templates>
+EOF
 
 cat > "$DIR/models/$MOD.py" <<EOF
 from odoo import fields, models

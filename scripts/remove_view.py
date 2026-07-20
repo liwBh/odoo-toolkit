@@ -16,6 +16,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _addons import find_module_dir
+
 
 def model_suffix(model_name):
     return model_name.replace(".", "_")
@@ -103,9 +106,9 @@ def main():
     parser.add_argument("--module", required=True)
     args = parser.parse_args()
 
-    app_dir = os.path.join("extra_addons", args.module)
-    if not os.path.isdir(app_dir):
-        print(f"Error: {app_dir} no existe")
+    app_dir = find_module_dir(args.module)
+    if not app_dir:
+        print(f"Error: módulo '{args.module}' no encontrado en ninguna ruta de addons_path")
         sys.exit(1)
 
     view_files = find_view_files(app_dir, args.model)

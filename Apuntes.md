@@ -49,6 +49,7 @@
    - 9.2 [make new-view — list+form para un modelo ya escrito a mano](#92-make-new-view--listform-para-un-modelo-ya-escrito-a-mano)
    - 9.3 [make remove-view — inverso de 9.2](#93-make-remove-view--inverso-de-92)
    - 9.4 [make remove-module — borrar un módulo completo (destructivo)](#94-make-remove-module--borrar-un-módulo-completo-destructivo)
+   - 9.5 [make sync-modules — regenerar modules.txt en proyecto clonado](#95-make-sync-modules--regenerar-modulestxt-en-proyecto-clonado)
 10. [Usuarios y Contraseñas](#10-usuarios-y-contraseñas)
     - 10.1 [Comandos Makefile de usuarios](#101-comandos-makefile-de-usuarios)
     - 10.2 [Contraseñas — dos conceptos distintos](#102-contraseñas--dos-conceptos-distintos)
@@ -74,6 +75,15 @@
     - 15.6 [Responder — make_response / make_json_response](#156-responder--make_response--make_json_response)
     - 15.7 [Ejemplo real completo (endpoints JSON)](#157-ejemplo-real-completo-endpoints-json)
     - 15.8 [Vistas personalizadas (QWeb) desde el controlador](#158-vistas-personalizadas-qweb-desde-el-controlador--páginas-web)
+16. [Assets estáticos y Componentes OWL públicos](#16-assets-estáticos-y-componentes-owl-públicos)
+    - 16.1 [Estructura `static/src/` y el scaffold](#161-estructura-staticsrc-y-el-scaffold)
+    - 16.2 [`assets` en el manifest — glob, a diferencia de `data`](#162-assets-en-el-manifest--glob-a-diferencia-de-data)
+    - 16.3 [Componentes OWL públicos — registro + `<owl-component>`](#163-componentes-owl-públicos--registro--owl-component)
+    - 16.4 [Checklist si el componente no aparece](#164-checklist-si-el-componente-no-aparece)
+    - 16.5 [Props, eventos y `useService` en componentes públicos](#165-props-eventos-y-useservice-en-componentes-públicos)
+    - 16.6 [CSS — dónde va y cómo evitar colisiones](#166-css--dónde-va-y-cómo-evitar-colisiones)
+    - 16.7 [Bootstrap — ya disponible en páginas website](#167-bootstrap--ya-disponible-en-páginas-website)
+    - 16.8 [Captura de eventos con `t-on-*`](#168-captura-de-eventos-con-t-on-)
 
 ---
 
@@ -223,7 +233,7 @@ make restart   # stop + run
 make dev
 ```
 
-Automatiza el ciclo manual de "edito código → paro server → `-u` → levanto server otra vez". Watchea `extra_addons/**/*.{py,xml,csv,po,css,scss,js}` (vía `watchdog`, instalado por `make setup`) y en cada cambio real:
+Automatiza el ciclo manual de "edito código → paro server → `-u` → levanto server otra vez". Watchea (vía `watchdog`, instalado por `make setup`) la carpeta de cada módulo listado en `modules.txt`, resuelta vía `addons_path` (no escanea `extra_addons/` completo — un módulo en `modules.txt` que no se encuentre en ninguna entrada de `addons_path` se avisa por consola y se ignora), extensiones `.py/.xml/.csv/.po/.css/.scss/.js`, y en cada cambio real:
 
 1. Debounce ~1.5s (coalesce guardados múltiples de un mismo save).
 2. Detiene el server.
@@ -1443,6 +1453,8 @@ Para armar niveles de permiso propios (que aparezcan como opciones en la pestañ
 
 ## 9. Scaffold — Crear módulo nuevo
 
+Todos los comandos de esta sección ubican el módulo vía `addons_path` de `odoo.conf` (helper compartido `scripts/_addons.py`), no asumen `extra_addons/` hardcodeado. En la práctica, con el `addons_path = ./addons,./extra_addons` default (ver 1.4) da lo mismo — pero si el proyecto agrega otra ruta custom al final de `addons_path`, los módulos nuevos (`new-module`) se crean ahí, y `new-view`/`remove-view`/`remove-module`/`make dev` buscan el módulo en cualquier entrada de `addons_path`, no solo en `extra_addons/`.
+
 ### 9.1 make new-module — módulo completo desde cero
 
 ```bash
@@ -1454,22 +1466,49 @@ make new-module name=students description="Estudiantes" category="Students" auth
 - `category` — opcional, categoría del módulo en `__manifest__.py`. Si se omite, usa `Uncategorized`.
 - `author` — opcional, autor en `__manifest__.py`. Si se omite, queda vacío.
 
-Genera:
+`depends` del `__manifest__.py` generado: `["base", "web", "website"]` (fijo, no configurable por parámetro). `web` y `website` quedan de una porque este proyecto usa controllers con vistas QWeb sobre el sitio público (ver 15.8) — si el módulo no los necesita, sacalos a mano del manifest.
+
+Genera (destino = última entrada de `addons_path`, ver nota arriba — `extra_addons/` con la config default):
 ```
 extra_addons/students/
-├── __init__.py
+├── __init__.py                 # from . import models, controllers, wizards
 ├── __manifest__.py
 ├── models/
 │   ├── __init__.py
 │   └── students.py             # class Students(models.Model), _name = "students.info"
+├── controllers/
+│   ├── __init__.py             # vacío — no importa students.py solo (ver nota abajo)
+│   └── students.py             # CRUD base (list/get/create/delete) — TODO comentado, no registra rutas
+├── wizards/
+│   └── __init__.py             # vacío — completar a mano (ver 13)
 ├── views/
 │   ├── view_list.xml
 │   ├── view_form.xml
 │   └── view_menu.xml           # menuitem con groups="students.group_students_access"
+├── static/src/
+│   ├── js/main.js               # stub: registro de OWL component — TODO comentado
+│   ├── css/main.css             # stub: comentario con $DESC
+│   └── xml/templates.xml        # stub: <t t-name="students.placeholder"><div/></t>
 └── security/
     ├── security.xml            # categoría + privilegio + grupo propio (ver 8.2)
     └── ir.model.access.csv     # ya usa el grupo de arriba, no base.group_user
 ```
+
+`wizards/` queda vacío (solo `__init__.py`) — el scaffold lo deja listo para no tener que tocar el `__init__.py` raíz del módulo a mano apenas agregás el primer wizard.
+
+`controllers/<módulo>.py` sale con 4 endpoints CRUD (`list`/`get`/`create`/`delete` sobre el modelo del módulo, `request.env["$MODEL"]`) **todo comentado línea por línea** — referencia rápida para copiar/descomentar y ajustar `auth`/`type`/`csrf` según el caso real (ver 15). Como es un `#` en cada línea (no un bloque `if False`/docstring), no se importa ni ejecuta nada — el módulo instala igual esté como esté ese archivo. `controllers/__init__.py` **no** hace `from . import <módulo>` (a diferencia de `models/__init__.py`) — agregalo vos cuando descomentes algo, si no el archivo ni se carga.
+
+`static/src/{js,css,xml}` vienen con un archivo stub real (no vacío) en cada uno — necesario porque git no trackea carpetas vacías, y un `.xml` vacío es XML inválido (rompería el parseo QWeb si algún glob más amplio lo llegara a tocar). El `t-name` del stub XML ya sale con el nombre del módulo (`$MOD.placeholder`) — cambialo o borralo, no lo dejes así en un módulo real. `static/src/js/main.js` trae, también comentado, el registro de un componente OWL público (`registry.category("public_components")`) que apunta a ese mismo template y se monta con `<owl-component name="$MOD.component"/>` en cualquier vista website (mismo mecanismo real usado y debuggeado en `students`, ver 15.8). El manifest ya trae el bloque `assets` apuntando a los tres directorios vía glob:
+```python
+"assets": {
+    "web.assets_frontend": [
+        "$MOD/static/src/js/**/*.js",
+        "$MOD/static/src/css/**/*.css",
+        "$MOD/static/src/xml/**/*.xml",
+    ]
+},
+```
+`assets` **sí** soporta glob (a diferencia de `data`, ver nota en 9.2 sobre por qué `data` no) — cualquier archivo nuevo que agregues en esas carpetas se suma solo al bundle, sin tocar el manifest. Es `web.assets_frontend` (sitio público) porque el depends fijo ya incluye `website` — si el módulo es puramente backend, cambialo a `web.assets_backend` a mano.
 
 El grupo de seguridad (`ir.module.category` → `res.groups.privilege` → `res.groups`, patrón de 8.2) se genera **automático** para todo módulo nuevo — no hace falta armarlo a mano cada vez como hicimos con `students`. Nombres de xmlid generados: `category_<módulo>_security`, `privilege_<módulo>`, `group_<módulo>_access`. El `<menuitem>` raíz y la única fila de `ir.model.access.csv` ya vienen con ese grupo — si agregás modelos nuevos a mano después (`new-view`, o escritos manualmente), acordate de usar el mismo `group_id:id` en sus filas del CSV (ver nota de consistencia en 8.1).
 
@@ -1494,7 +1533,7 @@ make new-view model=courses.students module=students editable=1   # O2M embebido
 ```
 
 - `model` — nombre técnico del modelo (`_name`), ya tiene que existir en el registry (o sea, el módulo instalado con ese modelo cargado — corré `-u` antes si acabás de crear el modelo).
-- `module` — carpeta del módulo en `extra_addons/`. Tiene que existir `menu_<module>` en `views/view_menu.xml` — si no existe, el comando falla en vez de inventar un menú nuevo.
+- `module` — nombre del módulo, ubicado vía `addons_path` (no asume `extra_addons/`, ver nota al inicio de la sección 9). Tiene que existir `menu_<module>` en `views/view_menu.xml` — si no existe, el comando falla en vez de inventar un menú nuevo.
 - `editable` — opcional. Sin esto, los `One2many` embebidos en el form salen solo-lectura (`create="false" edit="false" delete="false"`, mismo patrón que 6.2).
 
 **Qué genera para cada tipo de campo:**
@@ -1508,6 +1547,8 @@ make new-view model=courses.students module=students editable=1   # O2M embebido
 **Si las vistas YA existen — modo update aditivo:** el comando busca entre los XML de `views/` cuál ya declara ese modelo (no asume ningún nombre de archivo), y agrega **solo** los campos del modelo que todavía no aparecen ahí — nunca borra, reordena ni toca `options`/`readonly`/separators que hayas puesto a mano. Si no falta ningún campo, no toca el archivo.
 
 También agrega, si faltan: la fila del modelo en `ir.model.access.csv`, las líneas de los archivos nuevos en `__manifest__.py`, y el `<record ir.actions.act_window>` + `<menuitem parent="menu_<module>">` en `view_menu.xml`.
+
+Por qué agrega la línea al `data` en vez de usar un glob (`views/**/*.xml`) como hace `assets` (ver 9.1): **`data` no soporta glob en Odoo**, punto — se carga archivo por archivo, en el orden literal de la lista (`convert.py` vía `ast.literal_eval` del manifest, no hay expansión de wildcards ahí). Y aunque lo soportara, el orden de `data` importa para que la carga funcione (una vista con `inherit_id` necesita la vista base ya cargada antes, `view_menu.xml` necesita las actions/vistas que referencia ya cargadas) — un glob alfabético no garantiza ese orden. Por eso `new_view.py`/`remove_view.py` mantienen la lista explícita.
 
 La fila de `ir.model.access.csv` usa el grupo propio del módulo (`<module>.group_<module>_access`, ver 8.2/9.1) si el módulo tiene `security/security.xml` con ese patrón — si no lo tiene (módulo viejo, o armado a mano sin el scaffold), cae a `base.group_user`. Probado end-to-end: modelo nuevo agregado a un módulo con el grupo ya armado → la fila nueva sale con el grupo correcto, no con `base.group_user`.
 
@@ -1535,12 +1576,26 @@ make remove-module name=students yes=1
 
 **Irreversible.** A diferencia de 9.3, esto:
 1. Desinstala el módulo desde Odoo (`button_immediate_uninstall`) — limpia tablas, `ir.model.data`, accesos, vistas y menús asociados en la DB.
-2. Borra `extra_addons/<name>/` completo.
+2. Borra la carpeta del módulo completa (ubicada vía `addons_path`, no asume `extra_addons/`).
 3. Lo saca de `modules.txt`.
+
+> `button_immediate_uninstall` chequea global: si **cualquier** módulo instalado está en estado `to install`/`to upgrade`/`to remove` (no solo el que estás borrando), Odoo rechaza la operación con "Odoo is currently processing another module operation". Corré `make update-module module=<el-que-esté-atascado>` para destrabarlo antes de reintentar.
 
 Pide confirmación escribiendo el nombre del módulo (salvo `yes=1`). El orden importa: desinstala en DB **antes** de borrar la carpeta — al revés queda basura huérfana (tablas/registros sin módulo dueño), que es justo lo que pasó una vez en este proyecto por borrar la carpeta a mano sin desinstalar primero.
 
 > Script: `scripts/remove_module.py`. Recomendado correrlo con `make dev` parado para evitar que el watcher intente recargar a mitad de la desinstalación.
+
+### 9.5 make sync-modules — regenerar modules.txt en proyecto clonado
+
+```bash
+make sync-modules
+```
+
+`modules.txt` no viene versionado (o puede quedar vacío) — si clonás un proyecto existente con módulos custom ya en el repo, `make install`/`make update`/`make dev` no ven nada hasta que `modules.txt` los liste. Este comando escanea el dir custom (última entrada de `addons_path`, mismo criterio que 9.1) buscando carpetas con `__manifest__.py`, y agrega a `modules.txt` las que todavía no estén listadas.
+
+**Aditivo — nunca borra ni reordena.** Si ya corriste esto (o `modules.txt` ya tenía todo a mano), rerun no duplica nada. Líneas comentadas (`#módulo`) cuentan como "ya listado" y no se tocan.
+
+> Script: `scripts/sync_modules.py`. No toca la DB — solo escanea el filesystem.
 
 ---
 
@@ -2044,6 +2099,7 @@ Un controlador también puede servir una **página HTML completa** en vez de JSO
 - `<template id="...">` es sintaxis corta para un `<record model="ir.ui.view">` con `type="qweb"` — Odoo lo expande solo.
 - `t-call="website.layout"` — envuelve el contenido con el header/footer/menú del sitio público (mismo look que cualquier página de `website`). Sin esto, la página sale "pelada" (sin nav, sin estilos del tema).
 - External ID completo (con prefijo de módulo): **`students.view_students_web`** — se arma `<nombre_módulo>.<id>`, igual que cualquier otro xmlid (ver 5.2 sobre `ref=`).
+- **Convención recomendada: el `id` del `<template>` igual al nombre del archivo** (`views/view_students_web.xml` → `id="view_students_web"`), mismo patrón que ya usan `view_list_$MOD`/`view_form_$MOD` del scaffold (9.1). Evita confusión al buscar qué xmlid pasarle a `request.render(...)`.
 
 **Controlador — `@route(..., website=True)` + `request.render(...)`:**
 ```python
@@ -2056,3 +2112,171 @@ def students_web(self):
 - Sin `route`/path con variables (`/students/<int:id>`), esta página es estática — para pasarle datos reales del modelo, armar el dict y pasarlo: `request.render("students.view_students_web", {"estudiantes": request.env["students.info"].sudo().search([])})`, y consumirlo en el template con `t-foreach="estudiantes"`.
 
 **Diferencia clave contra 15.7 (JSON):** acá `type="http"` sigue siendo el mismo (no hay un `type="html"` separado) — lo que cambia es *qué devuelve* el método (`request.render(...)` en vez de `request.make_response(json.dumps(...))`) y el kwarg `website=True`, que solo tiene sentido cuando el HTML depende del layout/tema del sitio. Una página HTML simple sin necesidad del chrome del sitio puede devolver un string directo sin `website=True` (ver tabla de 15.6).
+
+---
+
+## 16. Assets estáticos y Componentes OWL públicos
+
+### 16.1 Estructura `static/src/` y el scaffold
+
+`make new-module` (ver 9.1) ya genera:
+```
+static/src/
+├── js/main.js            # stub: registro de componente OWL, comentado
+├── css/main.css          # stub: comentario con la descripción del módulo
+└── xml/templates.xml     # stub: <t t-name="<módulo>.placeholder"><div/></t>
+```
+
+Los tres vienen con contenido real (no vacíos) — git no trackea carpetas vacías, y un `.xml` sin contenido es XML inválido (rompería el parseo QWeb apenas algo intente cargarlo). El `t-name` del stub ya sale scoped al módulo (`<módulo>.placeholder`) para no chocar con templates de otros módulos — el namespace de QWeb es global.
+
+### 16.2 `assets` en el manifest — glob, a diferencia de `data`
+
+```python
+"assets": {
+    "web.assets_frontend": [
+        "<módulo>/static/src/js/**/*.js",
+        "<módulo>/static/src/css/**/*.css",
+        "<módulo>/static/src/xml/**/*.xml",
+    ]
+},
+```
+- Sin barra inicial (`<módulo>/static/...`, no `/<módulo>/static/...`) — así lo hace `web`/`website` en core.
+- **`assets` sí soporta glob** (`**/*.js`) — cualquier archivo nuevo en esas carpetas se suma solo al bundle, sin tocar el manifest. Es la excepción: `data` (ver 9.2) **no** soporta glob, se carga archivo por archivo en el orden literal de la lista.
+- `web.assets_frontend` es el bundle del sitio público (lo carga cualquier página con `website=True`/`website.layout`, ver 15.8). Si el módulo es puramente backend (backoffice logueado, sin páginas públicas), el bundle correcto es `web.assets_backend`.
+
+### 16.3 Componentes OWL públicos — registro + `<owl-component>`
+
+Mecanismo real para mostrar un componente OWL (JS) dentro de una página server-side (QWeb `<template>` renderizada por `request.render`, ver 15.8). Viene ya cableado por Odoo core (`web/static/src/public/public_component_interaction.js`) — no hay que registrar ninguna interaction a mano, solo:
+
+**1. Template OWL** (`static/src/xml/templates.xml`, cargado vía `assets`, ver 16.1/16.2):
+```xml
+<templates>
+    <t t-name="students.view_grades_students">
+        <h1>Hola Mundo</h1>
+    </t>
+</templates>
+```
+
+**2. Componente JS que usa ese template** (`static/src/js/`):
+```js
+/** @odoo-module **/
+import { Component } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+
+export class StudentsComponents extends Component {
+    static template = "students.view_grades_students";
+}
+
+registry.category("public_components").add("students.student_componets", StudentsComponents);
+```
+
+**3. Tag en cualquier template server-side** (página website, `view_menu.xml` no aplica — tiene que ser un `<template>` tipo 15.8):
+```xml
+<owl-component name="students.student_componets"/>
+```
+
+Odoo mismo escanea el DOM buscando `owl-component[name]`, saca el `name`, lo busca en `registry.category("public_components")`, y monta el componente ahí — sin JS adicional de tu parte.
+
+### 16.4 Checklist si el componente no aparece
+
+Tres strings tienen que coincidir **exactos** entre sí, en tres archivos distintos — la causa más común de "no se ve nada" es un typo en alguno de estos tres puntos, no un error de Odoo:
+
+1. `static="template"` de la clase Component ⟷ `t-name="..."` del XML OWL — mismo string.
+2. `registry.category("public_components").add("X", ...)` ⟷ `<owl-component name="X"/>` — mismo `X`.
+3. `registry.category("public_components")` — el nombre de la categoría en sí tiene que ser exacto (`public_components`, no `public_componets`/`public_component`/etc.) — un typo acá no tira error al cargar, solo hace que el componente quede en una categoría que nadie lee. El síntoma en consola del browser es `KeyNotFoundError: Cannot find key "X" in the "public_components" registry`.
+
+Aparte, si la página en sí no carga (antes de llegar al componente): el xmlid que le pasás a `request.render(...)` tiene que ser exactamente `<módulo>.<id-del-template>` — ver la convención de nombrado de archivo/id en 15.8.
+
+### 16.5 Props, eventos y `useService` en componentes públicos
+
+**Props** — se declaran en `static props` (schema de validación de OWL) y se pasan desde el HTML vía el atributo `props` del tag, como **JSON**. Dos casos, según si el valor es fijo o viene del servidor:
+
+**Caso 1 — valor fijo, no depende de nada del controller:** atributo `props` literal, comillas simples afuera / dobles adentro, sin `t-att-`:
+```xml
+<owl-component name="password_meter" props='{"selector": "input[name=password]"}'/>
+```
+
+**Caso 2 — valor dinámico (dato de la DB, del usuario, etc.):** el dict se arma en **Python, en el controller** — nunca como dict-literal adentro del atributo XML (`t-att-props="json.dumps({'x': x})"` funciona pero es feo de leer/mantener, mezcla sintaxis Python-dict dentro de un string de template). Patrón real de Odoo core (`account/controllers/tests_shared_js_python.py` + su template):
+```python
+# controller
+return request.render("students.view_students_templates", {
+    "props": {"userName": request.env.user.name},
+})
+```
+```xml
+<!-- template: json.dumps() de una variable ya armada, nada más -->
+<owl-component name="students.student_componets" t-att-props="json.dumps(props)"/>
+```
+
+```js
+static props = {
+    studentId: Number,
+    label: { type: String, optional: true },
+};
+```
+Adentro del componente: `this.props.studentId`. La interaction de core hace `JSON.parse(el.getAttribute("props") || "{}")` (ver 16.3) — si el atributo no está, `props` llega `{}`; si falta un prop requerido (no marcado `optional`), OWL tira error de validación al montar, lo cual conviene: avisa temprano si el `props` del HTML quedó mal armado, en vez de fallar más adelante con `undefined`.
+
+**Eventos** — dentro del template, igual que cualquier componente OWL: `t-on-click="metodo"`, `t-on-input="(ev) => this.metodo(ev)"`, etc. La diferencia real de un componente **público** (se monta imperativo desde `<owl-component>`, no está declarado dentro de un padre OWL) es "avisar hacia afuera": no hay padre OWL escuchando un `t-on-mi-evento` como en un componente normal. Ahí la única vía es **DOM nativo**:
+```js
+this.el.dispatchEvent(new CustomEvent("mi-evento", { detail: {...}, bubbles: true }));
+```
+y quien lo necesite lo escucha con `addEventListener` normal, o con el hook `useExternalListener` de OWL (ejemplo real en `auth_password_policy_signup/static/src/public/components/password_meter/password_meter.js`, core). Pasar un callback JS por el atributo `props` **no es viable** — `props` se serializa a JSON de un lado (Python/QWeb) y se deserializa del otro (`JSON.parse`), y una función no sobrevive ese viaje.
+
+**`useService`** — hook de OWL para pedir un servicio del framework (`orm`, `notification`, `dialog`, `rpc`, ...), se llama **dentro de `setup()`** (regla de hooks — no funciona en otro método):
+```js
+/** @odoo-module **/
+import { Component } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+import { registry } from "@web/core/registry";
+
+export class StudentsComponents extends Component {
+    static template = "students.view_grades_students";
+    static props = {};
+
+    setup() {
+        this.orm = useService("orm");
+        this.notification = useService("notification");
+    }
+
+    async loadStudents() {
+        const records = await this.orm.searchRead("students.info", [], ["id", "birth_date"]);
+        this.notification.add(`${records.length} estudiantes cargados`, { type: "success" });
+    }
+}
+
+registry.category("public_components").add("students.student_componets", StudentsComponents);
+```
+Funciona igual acá que en el backoffice — el mount de un componente público (`web/static/src/public/interaction.js`, `mountComponent`) pasa el `env` real del framework (`env.services` de verdad, no un stub). `useService("orm")` reemplaza el patrón manual de armar un controller + `fetch`/`json.dumps` (ver 15.7) para leer/escribir modelos desde el front — más corto y ya maneja sesión/errores del lado del framework.
+
+### 16.6 CSS — dónde va y cómo evitar colisiones
+
+Va en `static/src/css/` (el scaffold ya crea `main.css`, ver 16.1), cargado por el mismo glob del `assets` del manifest (`<módulo>/static/src/css/**/*.css`, ver 16.2) — cualquier archivo `.css` nuevo ahí adentro se suma solo al bundle, no hace falta `<link>` ni tocar el manifest de nuevo.
+
+```css
+.students_alert_btn {
+    background-color: #714B67;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+}
+```
+```xml
+<button class="students_alert_btn" t-on-click="openAlert">Click</button>
+```
+
+**Es CSS global, no scoped al componente** — el bundle `web.assets_frontend` lo carga para *toda* la página pública, no solo mientras el `owl-component` está montado. Por eso la clase lleva **prefijo del módulo** (`students_alert_btn`, no `.btn` o `.alert-btn` a secas): dos módulos con una clase genérica en el mismo bundle se pisan entre sí — el que carga después gana. Mismo criterio que el `t-name` scoped a módulo de 16.1/16.3.
+
+### 16.7 Bootstrap — ya disponible en páginas website
+
+**No hace falta agregarlo ni importarlo.** Bootstrap **5.3.3** (`addons/web/static/lib/bootstrap`) ya viene empaquetado en el bundle `web.assets_frontend` vía `website` (`website/__manifest__.py`, cadena `web._assets_bootstrap_frontend`) — cualquier página que pase por `website.layout` (ver 15.8) ya tiene las clases y el JS de Bootstrap disponibles. Como el `depends` del scaffold ya incluye `website` (ver 9.1), esto sale gratis en todo módulo nuevo.
+
+```xml
+<h1 class="text-primary text-center">Hola Mundo</h1>
+<button class="btn btn-primary m-5">Click</button>
+```
+
+- **Los colores no son el Bootstrap de fábrica** — `website` pisa las variables (`bootstrap_overridden.scss`) con la paleta de Odoo, por eso `text-primary`/`btn-primary` salen en el morado de Odoo, no en el azul estándar de Bootstrap.
+- El **JS** de Bootstrap (`website/static/src/libs/bootstrap/bootstrap.js`) también está cargado — modales/dropdowns/tooltips/collapse con los `data-bs-*` de siempre funcionan sin inicializar nada a mano.
+- Ojo con el alcance: esto es específico de páginas **website/frontend** (`web.assets_frontend`, `t-call="website.layout"`). Las vistas de backoffice (`view_list.xml`/`view_form.xml`, ver 6) usan el sistema de diseño propio del backend, no clases de Bootstrap sueltas.

@@ -5,7 +5,7 @@ Uso:
 
 Inverso de new_module.sh: desinstala el módulo desde Odoo (limpia tablas,
 ir.model.data, ir.model.access, vistas, menús asociados), borra la carpeta
-extra_addons/<name>/ y lo saca de modules.txt.
+del módulo (ubicada vía addons_path) y lo saca de modules.txt.
 
 Destructivo e irreversible — pide confirmación escribiendo el nombre del módulo,
 salvo que se pase --yes.
@@ -16,6 +16,8 @@ import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from _addons import find_module_dir
 
 import odoo
 from odoo.tools import config
@@ -36,9 +38,9 @@ def main():
     parser.add_argument("--yes", action="store_true", help="Salta la confirmación interactiva")
     args = parser.parse_args()
 
-    app_dir = os.path.join("extra_addons", args.name)
-    if not os.path.isdir(app_dir):
-        print(f"Error: {app_dir} no existe")
+    app_dir = find_module_dir(args.name)
+    if not app_dir:
+        print(f"Error: módulo '{args.name}' no encontrado en ninguna ruta de addons_path")
         sys.exit(1)
 
     if not args.yes:

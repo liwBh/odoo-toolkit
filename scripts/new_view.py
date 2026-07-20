@@ -3,7 +3,7 @@
 Uso:
   python scripts/new_view.py --model courses.students --module students [--editable]
 
-Dado un modelo ya definido en extra_addons/<module>/models/, genera (si no existen)
+Dado un modelo ya definido en <module>/models/ (buscado en addons_path), genera (si no existen)
 view_list_<modelo>.xml y view_form_<modelo>.xml, los cuelga de menu_<module> (debe
 existir), y agrega la fila que falte en __manifest__.py / ir.model.access.csv.
 
@@ -22,6 +22,8 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from _addons import find_module_dir
 
 import odoo
 from odoo.tools import config
@@ -273,9 +275,9 @@ def main():
     parser.add_argument("--editable", action="store_true")
     args = parser.parse_args()
 
-    app_dir = os.path.join("extra_addons", args.module)
-    if not os.path.isdir(app_dir):
-        print(f"Error: {app_dir} no existe")
+    app_dir = find_module_dir(args.module)
+    if not app_dir:
+        print(f"Error: módulo '{args.module}' no encontrado en ninguna ruta de addons_path")
         sys.exit(1)
 
     reg = odoo.modules.registry.Registry.new(DB)
@@ -286,7 +288,7 @@ def main():
         except KeyError:
             print(
                 f"Error: modelo '{args.model}' no existe en el registry "
-                f"(¿está definido en extra_addons/{args.module}/models/ y el módulo está instalado?)"
+                f"(¿está definido en {app_dir}/models/ y el módulo está instalado?)"
             )
             sys.exit(1)
         label = Model._description or args.model

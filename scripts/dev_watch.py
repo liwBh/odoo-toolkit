@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Watch extra_addons/ y auto-aplica -u + restart en cada cambio (make dev)."""
+"""Watch los módulos de modules.txt (ubicados vía addons_path) y auto-aplica
+-u + restart en cada cambio (make dev)."""
 import configparser
 import subprocess
 import sys
@@ -10,8 +11,9 @@ from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from _addons import addons_paths, find_module_dir
+
 ROOT = Path.cwd()
-ADDONS_DIR = ROOT / "extra_addons"
 MODULES_FILE = ROOT / "modules.txt"
 CONF = ROOT / "odoo.conf"
 PYTHON = ROOT / ".venv" / "bin" / "python"
@@ -41,6 +43,20 @@ def custom_modules():
         if line and not line.startswith("#"):
             mods.append(line)
     return mods
+
+
+def module_dirs():
+    """Resuelve, para cada módulo en modules.txt, su carpeta real según
+    addons_path (no asume extra_addons). Ignora los que no se encuentran."""
+    paths = addons_paths()
+    dirs = []
+    for mod in custom_modules():
+        found = find_module_dir(mod, paths)
+        if found:
+            dirs.append(found)
+        else:
+            print(f"[dev] aviso: módulo '{mod}' no encontrado en addons_path — no se va a vigilar")
+    return dirs
 
 
 def stop_server():
@@ -107,20 +123,27 @@ class DebouncedHandler(FileSystemEventHandler):
             return  # ignora "opened"/"closed_no_write" (lecturas, no cambios reales)
         path = Path(getattr(event, "dest_path", None) or event.src_path)
         if path.suffix in WATCHED_SUFFIXES and "__pycache__" not in path.parts:
-            self._schedule(path.relative_to(ROOT))
+            try:
+                reason = path.relative_to(ROOT)
+            except ValueError:
+                reason = path  # módulo fuera de ROOT (addons_path con ruta absoluta externa)
+            self._schedule(reason)
 
 
 def main():
-    if not ADDONS_DIR.exists():
-        print(f"[dev] {ADDONS_DIR} no existe")
+    dirs = module_dirs()
+    if not dirs:
+        print("[dev] ningún módulo de modules.txt se encontró en addons_path — nada que vigilar")
         sys.exit(1)
 
     apply_changes("arranque inicial")
 
     observer = Observer()
-    observer.schedule(DebouncedHandler(), str(ADDONS_DIR), recursive=True)
+    for d in dirs:
+        observer.schedule(DebouncedHandler(), str(d), recursive=True)
     observer.start()
-    print(f"[dev] watching {ADDONS_DIR} (.py/.xml/.csv/.po/.css/.scss/.js) — Ctrl+C para salir")
+    watched = ", ".join(str(d) for d in dirs)
+    print(f"[dev] watching {watched} (.py/.xml/.csv/.po/.css/.scss/.js) — Ctrl+C para salir")
 
     try:
         while True:

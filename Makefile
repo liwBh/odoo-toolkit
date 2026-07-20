@@ -50,6 +50,13 @@ reset-db: stop
 
 # ── Módulos ───────────────────────────────────────────────────────────────────
 
+# make sync-modules
+# Escanea el dir custom de addons_path y agrega a modules.txt los módulos que
+# falten (con __manifest__.py). Aditivo, no pisa lo existente. Útil al clonar
+# un proyecto donde modules.txt no viene versionado o quedó vacío.
+sync-modules:
+	@$(PYTHON) scripts/sync_modules.py
+
 # make new-module name=students description="Estudiantes" category="Students" author="Solvosoft"
 new-module:
 	@bash scripts/new_module.sh "$(name)" "$(description)" "$(category)" "$(author)"
@@ -154,6 +161,7 @@ help:
 	@echo "  make dev                                          - Auto -u + restart al guardar cambios"
 	@echo "  make init-db                                      - Inicializar DB con base"
 	@echo "  make reset-db                                     - Borrar y recrear DB"
+	@echo "  make sync-modules                                 - Agregar a modules.txt módulos custom no listados"
 	@echo "  make new-module name='' description='' category=''- Crear módulo nuevo (scaffold)"
 	@echo "  make new-view model='' module='' [editable=1]     - Crear/actualizar list+form para un modelo"
 	@echo "  make remove-view model='' module=''               - Borrar vista(s) generadas de un modelo"
@@ -174,7 +182,7 @@ help:
 	@echo "  make port                                         - Ver proceso en puerto 8069"
 	@echo ""
 
-.PHONY: init-config setup run stop restart dev init-db reset-db new-module new-view remove-view remove-module \
+.PHONY: init-config setup run stop restart dev init-db reset-db sync-modules new-module new-view remove-view remove-module \
         install update install-module update-module trans-loadlang trans-export trans-sync trans-scaffold \
         trans-import create-user create-admin \
         change-password port shell help
