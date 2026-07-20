@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Odoo Dev Livereload — Opciones</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 2rem auto; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    input { width: 100%; padding: 0.4rem; margin-top: 0.25rem; box-sizing: border-box; }
+    small { color: #666; }
+    button { margin-top: 1.5rem; padding: 0.5rem 1rem; cursor: pointer; }
+    #status { margin-top: 1rem; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h2>Odoo Dev Livereload</h2>
+  <p>Configurá el host/puerto donde corre <code>make dev</code> — como el "run config" de un IDE. Vacío = no hace nada.</p>
+
+  <label for="host">Host o IP</label>
+  <input id="host" type="text" placeholder="localhost" />
+
+  <label for="port">Puerto Odoo (http_port de odoo.conf)</label>
+  <input id="port" type="number" placeholder="8069" />
+
+  <label for="sidecarPort">Puerto sidecar (opcional — default: puerto Odoo + 1)</label>
+  <input id="sidecarPort" type="number" placeholder="8070" />
+  <small>Coincide con lo que imprime <code>make dev</code>: "livereload sidecar en http://...".</small>
+
+  <button id="save">Guardar y autorizar</button>
+  <div id="status"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

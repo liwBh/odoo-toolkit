@@ -2,10 +2,13 @@
 """Watch los módulos de modules.txt (ubicados vía addons_path) y auto-aplica
 -u + restart en cada cambio (make dev)."""
 import configparser
+import queue
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from watchdog.events import FileSystemEventHandler
@@ -30,6 +33,81 @@ RED = "\033[31m"
 server_proc = None
 lock = threading.Lock()
 apply_lock = threading.Lock()
+
+# --- Livereload sidecar (opcional) ---------------------------------------
+# Servidor SSE aparte, independiente del ciclo de vida de odoo-bin (vive en
+# este mismo proceso, no lo mata el stop/restart de cada -u). Sirve para que
+# la extensión de navegador (ver browser-extension/ en la raíz del toolkit)
+# refresque la pestaña sola cuando termina un update — pero es 100% opcional:
+# si nadie la instaló, no hay clientes conectados a /events y esto no hace
+# nada más que escuchar en un puerto extra sin efecto sobre make dev/run.
+sidecar_clients = []
+sidecar_lock = threading.Lock()
+
+
+class _ReloadHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass  # silencia el access log default (ya tenemos nuestros propios prints)
+
+    def do_GET(self):
+        if self.path != "/events":
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        client_queue = queue.Queue()
+        with sidecar_lock:
+            sidecar_clients.append(client_queue)
+        try:
+            while True:
+                try:
+                    client_queue.get(timeout=15)
+                    self.wfile.write(b"data: reload\n\n")
+                    self.wfile.flush()
+                except queue.Empty:
+                    # heartbeat — mantiene viva la conexión y detecta sockets muertos
+                    self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with sidecar_lock:
+                if client_queue in sidecar_clients:
+                    sidecar_clients.remove(client_queue)
+
+
+def broadcast_reload():
+    with sidecar_lock:
+        for client_queue in sidecar_clients:
+            client_queue.put(True)
+
+
+def start_sidecar(port):
+    try:
+        server = ThreadingHTTPServer(("0.0.0.0", port), _ReloadHandler)
+    except OSError as exc:
+        print(f"{YELLOW}[dev] livereload sidecar no pudo levantar en el puerto {port} ({exc}) — seguimos sin auto-reload de navegador{RESET}")
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"[dev] livereload sidecar en http://localhost:{port}/events (opcional — ver browser-extension/)")
+
+
+def wait_server_ready(port, timeout=30):
+    url = f"http://localhost:{port}/web/login"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            return True
+        except Exception:
+            time.sleep(0.3)
+    return False
 
 
 def http_port():
@@ -110,6 +188,8 @@ def apply_changes(reason):
             return
     print(f"{GREEN}{BOLD}[dev] ✓ ACTUALIZACIÓN COMPLETA — levantando server{RESET}")
     start_server()
+    if wait_server_ready(http_port()):
+        broadcast_reload()
 
 
 class DebouncedHandler(FileSystemEventHandler):
@@ -142,6 +222,7 @@ def main():
         print("[dev] ningún módulo de modules.txt se encontró en addons_path — nada que vigilar")
         sys.exit(1)
 
+    start_sidecar(int(http_port()) + 1)
     apply_changes("arranque inicial")
 
     observer = Observer()

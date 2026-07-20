@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Odoo Dev Livereload",
+  "version": "1.0.0",
+  "description": "Refresca la pestaña de Odoo sola cuando 'make dev' termina de aplicar un cambio. No hace nada si no se configura un target en Opciones.",
+  "icons": {
+    "96": "image/favicon-96x96.png",
+    "192": "image/web-app-manifest-192x192.png"
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "permissions": ["storage", "tabs", "alarms"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"]
+}
