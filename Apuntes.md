@@ -84,6 +84,10 @@
     - 16.6 [CSS — dónde va y cómo evitar colisiones](#166-css--dónde-va-y-cómo-evitar-colisiones)
     - 16.7 [Bootstrap — ya disponible en páginas website](#167-bootstrap--ya-disponible-en-páginas-website)
     - 16.8 [Captura de eventos con `t-on-*`](#168-captura-de-eventos-con-t-on-)
+    - 16.9 [Lifecycle hooks — onWillStart, onWillRender, onMounted](#169-lifecycle-hooks--onwillstart-onwillrender-onmounted)
+    - 16.10 [useRef — acceso directo al DOM](#1610-useref--acceso-directo-al-dom)
+    - 16.11 [t-foreach — listas y tablas](#1611-t-foreach--listas-y-tablas)
+    - 16.12 [useService("orm") — consultas desde el front](#1612-useserviceorm--consultas-desde-el-front)
 
 ---
 
@@ -2113,6 +2117,36 @@ def students_web(self):
 
 **Diferencia clave contra 15.7 (JSON):** acá `type="http"` sigue siendo el mismo (no hay un `type="html"` separado) — lo que cambia es *qué devuelve* el método (`request.render(...)` en vez de `request.make_response(json.dumps(...))`) y el kwarg `website=True`, que solo tiene sentido cuando el HTML depende del layout/tema del sitio. Una página HTML simple sin necesidad del chrome del sitio puede devolver un string directo sin `website=True` (ver tabla de 15.6).
 
+**`name="..."` del `<template id="...">` SÍ termina en el título de la pestaña — pero indirecto, vía `main_object` autoinyectado, no porque `website.layout` lo lea directo.** Cadena real (confirmada en el core):
+
+1. `request.render(xmlid, values)` sin `main_object` explícito en `values` → `IrUiView._render_template` (override de `website`, `addons/website/models/ir_ui_view.py:448-456`) autoinyecta `values['main_object'] = view` — el propio registro `ir.ui.view` de la plantilla que se está renderizando.
+2. `ir.ui.view` tiene campo `name` — ese `name` es exactamente el atributo `name="..."` del `<template id="...">`.
+3. `website.layout` (`addons/website/views/website_templates.xml:107-119`): si no hay `title` seteado y `main_object` tiene `name`, arma `additional_title = main_object.name` y el título final es `additional_title + " | " + website.name`.
+
+```xml
+<template id="view_students_templates" name="Calificaciones">
+```
+→ sin nada más, el tab del navegador muestra **"Calificaciones | \<nombre del sitio\>"**.
+
+**Para tener el título limpio, sin el sufijo del sitio, o distinto al `name=` del template**, `t-set="title"` **antes** del `t-call="website.layout"` — pisa el fallback de `main_object.name` (`t-if="not title"` en el core, respeta lo que ya venga seteado):
+```xml
+<template id="view_students_templates" name="Calificaciones">
+    <t t-set="title">Calificaciones</t>
+    <t t-call="website.layout">
+        <owl-component name="students.student_componets" t-att-props="json.dumps(props)"/>
+    </t>
+</template>
+```
+`t-set` hecho **antes** del `t-call` (no adentro) porque QWeb propaga las variables del contexto del caller hacia el template llamado — mismo mecanismo con el que `website.layout` lee `title`/`main_object` sin que el caller se los pase explícito por `values=`.
+
+**Si el `main_object` autoinyectado no sirve** (ej. querés pasar un `main_object` real de tu modelo, tipo `students.info`, para que el `seo_object`/breadcrumbs de `website.layout` apunten a datos reales en vez de al `ir.ui.view` técnico) hay que pasarlo a mano en `values`, ahí el override de arriba no lo pisa (`if 'main_object' not in values`):
+```python
+return request.render("students.view_students_templates", {
+    "props": {...},
+    "main_object": student_record,
+})
+```
+
 ---
 
 ## 16. Assets estáticos y Componentes OWL públicos
@@ -2280,3 +2314,210 @@ Va en `static/src/css/` (el scaffold ya crea `main.css`, ver 16.1), cargado por 
 - **Los colores no son el Bootstrap de fábrica** — `website` pisa las variables (`bootstrap_overridden.scss`) con la paleta de Odoo, por eso `text-primary`/`btn-primary` salen en el morado de Odoo, no en el azul estándar de Bootstrap.
 - El **JS** de Bootstrap (`website/static/src/libs/bootstrap/bootstrap.js`) también está cargado — modales/dropdowns/tooltips/collapse con los `data-bs-*` de siempre funcionan sin inicializar nada a mano.
 - Ojo con el alcance: esto es específico de páginas **website/frontend** (`web.assets_frontend`, `t-call="website.layout"`). Las vistas de backoffice (`view_list.xml`/`view_form.xml`, ver 6) usan el sistema de diseño propio del backend, no clases de Bootstrap sueltas.
+
+### 16.8 Captura de eventos con `t-on-*`
+
+**Sintaxis:** `t-on-<evento nativo del DOM>="metodo"` — cualquier evento DOM sirve, no hay lista cerrada propia de Odoo/OWL, es el nombre del evento tal cual (sin `on` adelante, a diferencia del atributo HTML plano `onclick`). Los que más se usan:
+
+| Evento | Uso típico |
+|---|---|
+| `click` | botones, links |
+| `input` | el valor cambia mientras se escribe (cada tecla) |
+| `change` | el valor cambia y pierde foco (o en `<select>`, al elegir opción) |
+| `submit` | envío de `<form>` — casi siempre junto con `.prevent` |
+| `keydown` / `keyup` | teclas — `ev.key` adentro del handler para saber cuál |
+| `focus` / `blur` | el foco entra/sale de un input |
+| `mouseenter` / `mouseleave` | hover (no burbujean, a diferencia de `mouseover`/`mouseout`) |
+
+```xml
+<button t-on-click="openAlert">Click</button>
+<input t-on-input="(ev) => this.state.value = ev.target.value"/>
+<form t-on-submit.prevent="onSubmit">...</form>
+```
+
+**Modificadores** (encadenables, `t-on-click.stop.prevent="metodo"`):
+
+| Modificador | Qué hace |
+|---|---|
+| `.prevent` | `ev.preventDefault()` — evita el comportamiento default del navegador (ej: que un submit recargue la página) |
+| `.stop` | `ev.stopPropagation()` — no deja que el evento siga burbujeando a elementos padre |
+| `.self` | el handler solo corre si el evento se originó en **este** elemento, no en un hijo que burbujeó hasta acá |
+| `.capture` | escucha en fase de *capture* (de afuera hacia adentro) en vez de *bubble* (default, de adentro hacia afuera) |
+| `.synthetic` | fuerza un listener nativo directo en el elemento en vez del sistema de delegación global de OWL — para casos borde (eventos que no burbujean hasta la raíz montada, iframes) |
+
+### 16.9 Lifecycle hooks — onWillStart, onWillRender, onMounted
+
+Se importan de `@odoo/owl` y se registran **dentro de `setup()`** (misma regla de hooks que `useService`/`useState`, ver 16.5) — reciben un callback, no se sobreescribe ningún método de clase.
+
+**Orden real de ejecución en el primer mount:**
+
+```
+onWillStart  →  1er render  →  onWillRender  →  DOM pintado  →  onMounted
+```
+
+Después, cada vez que cambia el `state` reactivo (`useState`, ver 6.6/16.5): solo se repite `onWillRender` (no `onWillStart` ni `onMounted` — esos corren una sola vez, en el mount inicial).
+
+| Hook | Cuándo corre | Uso típico |
+|---|---|---|
+| `onWillStart(cb)` | Antes del 1er render, antes de que exista el DOM del componente. `cb` puede ser `async` (esperar un `orm.searchRead` antes de pintar nada) | Cargar datos iniciales que el primer render necesita |
+| `onWillRender(cb)` | Antes de **cada** render — el primero y todos los siguientes (cada cambio de `state`/`props`) | Cálculos derivados livianos. **No** side-effects pesados/notificaciones — se dispara seguido |
+| `onMounted(cb)` | Después del 1er render, con el DOM ya montado en la página | Leer/tocar el DOM real, listeners externos, fetch que depende de que el DOM ya exista |
+
+Otros hooks disponibles (no usados todavía en este proyecto): `onWillUpdateProps`, `onWillPatch`, `onPatched`, `onWillUnmount`, `onWillDestroy`.
+
+**Ejemplo real** (`students/static/src/js/students_components.js`):
+```js
+import { Component, useState, onWillStart, onWillRender, onMounted } from "@odoo/owl";
+
+setup() {
+    this.orm = useService("orm");
+    this.notification = useService("notification");
+    this.state = useState({ number: 0 });
+
+    onWillStart(() => {
+        this.state.number += 10;   // corre antes del 1er render — ya suma antes de pintar
+    });
+
+    onWillRender(() => {
+        this.addNotification(`Numero: ${this.state.number}`, "info");  // dispara en CADA render
+    });
+
+    onMounted(async () => {
+        const student = await this.getStudentByID();  // orm.searchRead es async — hace falta await
+        console.log(`Estudiante: ${student?.name}`);
+    });
+}
+```
+
+**Bug real encontrado con este patrón** (mismo archivo): `getStudentByID()` llama `this.orm.searchRead(...)` — **todo método de `useService("orm")` es async, devuelve Promise** (ver 16.5). Si no se hace `await`:
+- la variable queda con el objeto Promise, no con los datos — un chequeo tipo `if (!student)` nunca es cierto (una Promise siempre es truthy), el "no se encontró" nunca dispara aunque no haya resultados.
+- `searchRead` además devuelve **array** (aunque el domain matchee un solo registro) — hace falta `resultado[0]`, no usar el array directo como si fuera el record.
+
+Fix real aplicado:
+```js
+async getStudentByID() {
+    if (!this.props.studentId) {
+        console.error("No se envio el id del estudiante.");
+        return;
+    }
+    const students = await this.orm.searchRead("students.info", [["id", "=", this.props.studentId]]);
+    if (!students.length) {
+        this.addNotification("No se encontró el estudiante.", "danger");
+        return;
+    }
+    return students[0];
+}
+```
+Y el caller (`onMounted`) también necesita ser `async` + `await` la llamada — si el método que consume es async pero quien lo llama no espera, se vuelve a caer en el mismo problema un nivel arriba (`onMounted(async () => { const student = await this.getStudentByID(); ... })`).
+
+**Otro error típico con `this.props.<algo>`:** es un **valor** (según el tipo declarado en `static props`, ver 16.5), no una función — `this.props.studentId()` explota con `TypeError: this.props.studentId is not a function`. Se accede directo, sin paréntesis: `this.props.studentId`.
+
+El handler recibe el `Event` nativo del navegador como único argumento (`ev.target`, `ev.key`, `ev.preventDefault()`, etc.) — no hay wrapper propio de Odoo/OWL encima. Para "avisar hacia afuera" de un componente público con un evento propio (no nativo del DOM), ver 16.5 — ahí la única vía es `CustomEvent` + `dispatchEvent`, `t-on-*` normal no alcanza (el componente no tiene padre OWL escuchando).
+
+### 16.10 useRef — acceso directo al DOM
+
+Para leer/manipular un elemento del DOM directo (no vía `state`/`props`) — típico en inputs no controlados, medir tamaños, foco manual, integrarse con libs externas que necesitan un nodo real.
+
+**Dos partes que tienen que coincidir EXACTO, string por string** (mismo patrón de gotcha que `static props`/`t-name` ⟷ `registry`, ver 16.4):
+
+1. **XML** — `t-ref="<nombre>"` en el elemento:
+```xml
+<input class="form-control w-auto" type="number" placeholder="edad" t-ref="inputAge"/>
+```
+2. **JS** — `useRef("<mismo nombre>")` en `setup()`:
+```js
+setup() {
+    this.inputAge = useRef("inputAge");
+}
+```
+
+Si los strings no coinciden (`inputAge` vs `input_age`, typo, mayúsculas), Owl no tira error al montar — `useRef` no falla silenciosamente detectable, simplemente el ref nunca encuentra su elemento y **`this.inputAge.el` queda `null`** para siempre. El error explota recién cuando algo intenta usarlo:
+```
+TypeError: can't access property "value", this.inputAge.el is null
+```
+
+**Uso real** (`students_components.js`, botón "Validar Edad"):
+```js
+validateAge() {
+    const valueAge = parseInt(this.inputAge.el.value);
+    if (valueAge < 18) {
+        this.addNotification("La persona es menor de edad.", "danger");
+        return;
+    }
+    this.addNotification("La persona es Mayor de edad.");
+}
+```
+- `this.inputAge` es el objeto ref (`{ el: <elemento DOM o null> }`), **no** el elemento en sí — siempre `.el` para llegar al nodo real.
+- **`.el` es `null` hasta que el componente monta** — no usar un ref dentro de `onWillStart` (corre antes del 1er render, el DOM ni existe todavía, ver 16.9). Recién es seguro leerlo desde `onMounted` en adelante, o en un handler de evento (`t-on-click`, como acá) que solo puede dispararse después de que el elemento ya esté en pantalla.
+- No hace falta `useState` para el valor del input si el flujo es "leer al hacer click" (como acá) — eso es justamente la ventaja de un ref sobre un input controlado: no dispara re-render en cada tecla.
+
+### 16.11 t-foreach — listas y tablas
+
+**Sintaxis:** `t-foreach="<expresión iterable>" t-as="<nombre de la variable>" t-key="<expresión única>"`.
+
+```xml
+<tbody>
+    <t t-foreach="state.studentGrades" t-as="item" t-key="item.id">
+        <tr>
+            <td><t t-esc="item.id"/></td>
+            <td><t t-esc="item.note"/></td>
+            <td><t t-esc="item.course_id[1]"/></td>
+            <td><t t-esc="item.status_grade"/></td>
+        </tr>
+    </t>
+</tbody>
+```
+
+- **`t-as`** nombra la variable de cada elemento dentro del loop — adentro, `item` **ya es el registro completo** (no un array ni un índice, ver bug real más abajo). Junto con `t-as`, Owl también expone solos, sin declararlos: `item_index` (posición, 0-based), `item_first`/`item_last` (bool), `item_value` (alias de `item` cuando se itera un dict).
+- **`t-key`** es **obligatorio** en la práctica — sin una key única y estable por elemento, Owl no puede saber qué `<tr>` reusar/destruir cuando la lista cambia (reordena, agrega, borra) y puede terminar re-renderizando de más o mezclando el DOM entre filas. Usar el `id` del registro (`item.id`), nunca el índice del loop (`item_index`) si la lista puede reordenarse/filtrarse — el índice cambia de elemento aunque el dato "de abajo" sea el mismo.
+- **`<t t-foreach>` no pinta nada por sí solo** — es un contenedor lógico (como `<t t-if>`), el que se repite es lo que está *adentro* (acá, todo el `<tr>`). Por eso el `t-foreach` envuelve el `<tr>` completo, no está pegado directo en la fila.
+
+**Bug real de este proyecto con datos de `searchRead`:** los campos Many2one en el resultado de `orm.searchRead` (ver 16.5/16.9) llegan como **array** `[id, display_name]`, no como objeto:
+```xml
+<!-- MAL — item ya es el registro, no un array; y course_id tampoco tiene .name -->
+<td><t t-esc="item[1].course_id.name"/></td>
+
+<!-- BIEN — item.course_id es el array [id, display_name], [1] saca el nombre -->
+<td><t t-esc="item.course_id[1]"/></td>
+```
+
+**Filtrar antes de iterar, no adentro del `t-foreach`** — QWeb no tiene un `t-if` "por elemento" combinado con `t-foreach` en el mismo tag; para mostrar solo un subconjunto, filtrar el array en JS antes de asignarlo al `state` (o envolver cada `<tr>` en un `t-if` aparte usando `item`):
+```xml
+<t t-foreach="state.studentGrades" t-as="item" t-key="item.id">
+    <tr t-if="item.status_grade == 'aprobado'">
+        <td><t t-esc="item.id"/></td>
+    </tr>
+</t>
+```
+Acá el `t-if` sí puede ir en el mismo elemento que se repite (`<tr>`), evaluado por cada `item` — lo que no se puede es poner `t-if` y `t-foreach` en el **mismo** `<t>`, se combinan en tags separados/anidados.
+
+### 16.12 useService("orm") — consultas desde el front
+
+Todo método de `useService("orm")` (ver 16.5) es **async** — pega directo contra el ORM del servidor vía RPC (`/web/dataset/call_kw` por debajo), reemplaza el patrón manual de controller + `fetch`/`json.dumps` (ver 15.7) cuando lo que hace falta es leer/escribir un modelo, no una API custom con lógica propia.
+
+| Método | Firma | Devuelve | Uso |
+|---|---|---|---|
+| `search(model, domain, options)` | `options`: `{limit, offset, order}` | array de **ids** (`[3, 7, 12]`) | solo necesitás saber qué registros matchean, no sus datos |
+| `searchRead(model, domain, fields, options)` | `fields` opcional — sin pasarlo trae todos los campos | array de **dicts** (uno por registro) | el caso más común: buscar + leer datos en un solo viaje |
+| `read(model, ids, fields)` | `ids` ya conocidos de antes | array de dicts | ya tenés los ids (ej. guardados en `state`), solo falta traer/refrescar campos |
+| `webSearchRead(model, domain, fields, options)` | como `searchRead` pero pensado para vistas (paginación con `limit`/`offset`, cuenta total) | `{records, length}` | listas paginadas tipo list view — no usado todavía en este proyecto |
+| `create(model, valsList)` | `valsList`: **array** de dicts, aunque sea 1 solo registro | array de ids creados | alta desde el front |
+| `write(model, ids, vals)` | `ids`: array, `vals`: un solo dict aplicado a todos | `true`/`false` | update desde el front |
+| `unlink(model, ids)` | `ids`: array | `true`/`false` | borrado desde el front |
+| `call(model, method, args, kwargs)` | `method`: nombre de un método Python del modelo (no CRUD estándar) | lo que devuelva ese método | llamar lógica de negocio custom (ej. un método tipo `disapprove()`, ver 13) desde el front |
+
+**Ejemplos reales de este proyecto** (`students_components.js`):
+```js
+// searchRead simple, con domain y sin fields explícito (trae todos los campos)
+const students = await this.orm.searchRead("students.info", [["id", "=", this.props.studentId]]);
+
+// searchRead con domain sobre un Many2one — mismo domain que en Python (ver 5.8),
+// pero como array de arrays en vez de tuplas: [campo, operador, valor]
+const studentGrades = await this.orm.searchRead("grades.students", [["student_id", "=", student.id]]);
+```
+
+- **El domain en JS es idéntico en semántica al de Python** (ver 5.8: operadores, AND implícito, `|`/`!` para OR/NOT) — solo cambia la sintaxis de contenedor: tupla Python `(...)` → array JS `[...]`.
+- **`searchRead` siempre devuelve array**, incluso si el domain matchea un único registro (`[["id", "=", x]]`) — hay que indexar `resultado[0]`, nunca asumir que el resultado es el objeto directo (bug real ya visto, ver 16.9).
+- **Todo es async, siempre `await`** — el error más común es tratar el resultado como si ya fuera el dato (Promise en vez de array/dict), ver 16.9 para el caso real que rompió por esto.
+- **Sin `sudo()` desde el front** — a diferencia del controller Python (ver 15.7), las llamadas de `useService("orm")` corren siempre con los permisos reales del usuario logueado en el navegador. Si el usuario no tiene acceso al modelo por `ir.model.access.csv` (ver 8.1) o le bloquea una `ir.rule` (ver 8.3), el RPC devuelve error de acceso — no hay forma de saltarlo desde el JS, la elevación de permisos (si hace falta) tiene que pasar por un controller/método Python con `sudo()`.
+- **Cuándo usar esto vs un controller propio (15.1-15.8):** `useService("orm")` para CRUD directo sobre modelos ya existentes, respetando permisos del usuario — más corto, sin escribir Python nuevo. Un controller/`@route` propio cuando hace falta lógica de servidor (validaciones, `sudo()`, combinar varios modelos, devolver algo que no es data cruda de un modelo) o el consumidor no es un componente Owl (webhook externo, curl, etc.).
