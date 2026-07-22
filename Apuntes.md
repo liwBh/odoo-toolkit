@@ -1690,6 +1690,7 @@ python odoo-bin -c odoo.conf -i base
 | `options="{'clickable: 1'}"` no tiene efecto (statusbar no clickeable, u otro widget ignora la opción) | El `:` quedó **adentro** de las comillas del string — `{'clickable: 1'}` es un `set` con un único string `'clickable: 1'`, no un dict `{'clickable': 1}` | Cerrar la comilla antes de los dos puntos: `options="{'clickable': 1}"` |
 | `No matching record found for external id 'model_x_y'` en `ir.model.access.csv` | El `model_id:id` del CSV no coincide con el modelo real reflejado (mismatch entre `_name` y lo que referencia el CSV), o estado de módulo corrupto por instalaciones parciales previas | Verificar que `model_id:id` = `model_` + `_name` con `.`→`_`; si persiste, chequear `ir_module_module.state` en DB y reinstalar limpio |
 | `name`/`display_name` calculado muestra `modelo.tecnico(1,)` en vez del texto esperado | Un campo `Many2one` metido directo en un f-string (`f"{rec.course_id}"`) — Python llama al `__str__` del recordset, no a su nombre | Usar `rec.course_id.display_name` (o `.name`), nunca el recordset pelado |
+| `make init-config` con valores nuevos no cambia nada — `odoo.conf` queda con los valores de la corrida anterior | `odoo.conf` ya existe; el script rechaza sobreescribir y sale con error (fácil de no ver, queda mezclado con el resto del output) | Agregar `force=1`: `make init-config db_name=... force=1` |
 
 ### 11.3 Plugins recomendados
 

@@ -18,6 +18,7 @@ setup:
 	.venv/bin/pip install -r requirements.txt
 	.venv/bin/pip install watchdog
 	mkdir -p extra_addons
+	touch modules.txt
 	@echo ""
 	@echo "Entorno listo. Continúa con: make init-db && make install"
 

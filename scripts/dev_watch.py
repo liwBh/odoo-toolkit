@@ -4,7 +4,6 @@
 import configparser
 import queue
 import subprocess
-import sys
 import threading
 import time
 import urllib.request
@@ -173,19 +172,20 @@ def start_server():
 def apply_changes(reason):
     with apply_lock:
         mods = custom_modules()
-        if not mods:
-            print(f"[dev] modules.txt vacío o inexistente — nada que actualizar ({reason})")
-            return
-        print(f"{YELLOW}{BOLD}[dev] ⏳ ACTUALIZANDO ({reason}) — deteniendo server...{RESET}")
-        stop_server()
-        print(f"{YELLOW}[dev] aplicando -u {','.join(mods)}{RESET}")
-        result = subprocess.run(
-            [str(PYTHON), str(ODOO_BIN), "-c", str(CONF), "-u", ",".join(mods), "--stop-after-init"],
-            cwd=str(ROOT),
-        )
-        if result.returncode != 0:
-            print(f"{RED}{BOLD}[dev] ✗ ERROR al actualizar módulos (exit {result.returncode}) — server NO se levanta. Corregí y guardá de nuevo.{RESET}")
-            return
+        if mods:
+            print(f"{YELLOW}{BOLD}[dev] ⏳ ACTUALIZANDO ({reason}) — deteniendo server...{RESET}")
+            stop_server()
+            print(f"{YELLOW}[dev] aplicando -u {','.join(mods)}{RESET}")
+            result = subprocess.run(
+                [str(PYTHON), str(ODOO_BIN), "-c", str(CONF), "-u", ",".join(mods), "--stop-after-init"],
+                cwd=str(ROOT),
+            )
+            if result.returncode != 0:
+                print(f"{RED}{BOLD}[dev] ✗ ERROR al actualizar módulos (exit {result.returncode}) — server NO se levanta. Corregí y guardá de nuevo.{RESET}")
+                return
+        else:
+            print(f"[dev] modules.txt vacío o inexistente — arrancando server sin actualizar módulos ({reason})")
+            stop_server()
     print(f"{GREEN}{BOLD}[dev] ✓ ACTUALIZACIÓN COMPLETA — levantando server{RESET}")
     start_server()
     if wait_server_ready(http_port()):
@@ -219,8 +219,7 @@ class DebouncedHandler(FileSystemEventHandler):
 def main():
     dirs = module_dirs()
     if not dirs:
-        print("[dev] ningún módulo de modules.txt se encontró en addons_path — nada que vigilar")
-        sys.exit(1)
+        print("[dev] aviso: ningún módulo de modules.txt se encontró en addons_path — arranca igual, sin nada que vigilar")
 
     start_sidecar(int(http_port()) + 1)
     apply_changes("arranque inicial")
@@ -229,8 +228,11 @@ def main():
     for d in dirs:
         observer.schedule(DebouncedHandler(), str(d), recursive=True)
     observer.start()
-    watched = ", ".join(str(d) for d in dirs)
-    print(f"[dev] watching {watched} (.py/.xml/.csv/.po/.css/.scss/.js) — Ctrl+C para salir")
+    if dirs:
+        watched = ", ".join(str(d) for d in dirs)
+        print(f"[dev] watching {watched} (.py/.xml/.csv/.po/.css/.scss/.js) — Ctrl+C para salir")
+    else:
+        print("[dev] sin módulos vigilados (modules.txt vacío) — server corriendo. Ctrl+C para salir")
 
     try:
         while True:
