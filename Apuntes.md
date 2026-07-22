@@ -134,7 +134,7 @@ http_port = 8069
 - `addons_path` incluye carpeta `extra_addons` para módulos custom.
 - `http_port` es el puerto HTTP donde escucha Odoo (`make run` / `make dev`). Default `8069` — se escribe siempre explícito en el conf generado para que quede visible y sea fácil de cambiar si hay conflicto de puerto (ej. varios proyectos corriendo en paralelo).
 
-Crear carpeta si no existe:
+Crear carpeta si no existe, (make setup, debe crearla):
 ```bash
 mkdir -p extra_addons
 ```
