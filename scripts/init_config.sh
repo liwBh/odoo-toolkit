@@ -12,8 +12,16 @@ HTTP_PORT="${8:-8069}"
 
 CONF="odoo.conf"
 
+RED='\033[31m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
 if [ -f "$CONF" ] && [ "$FORCE" != "1" ]; then
-    echo "Error: $CONF ya existe. Usa force=1 para sobreescribir."
+    echo ""
+    echo -e "${RED}${BOLD}[init-config] ERROR: $CONF ya existe — NO se modificó nada.${RESET}"
+    echo -e "${BOLD}Tus valores nuevos NO se aplicaron. Para sobreescribir agregá force=1:${RESET}"
+    echo "  make init-config ... force=1"
+    echo ""
     exit 1
 fi
 

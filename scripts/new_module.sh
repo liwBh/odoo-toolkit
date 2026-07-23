@@ -258,4 +258,5 @@ fi
 echo ""
 echo "Módulo '$MOD' creado en $DIR/"
 echo "Agregado a modules.txt"
-echo "Corré 'make install-module module=$MOD' para instalarlo (make dev no lo instala solo — recién actualiza módulos ya instalados)."
+echo "Si 'make dev' está corriendo, lo instala solo (detecta el cambio en modules.txt)."
+echo "Si no, corré 'make install-module module=$MOD' para instalarlo."

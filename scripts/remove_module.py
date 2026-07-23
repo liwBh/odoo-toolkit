@@ -56,8 +56,17 @@ def main():
         module = env["ir.module.module"].search([("name", "=", args.name)], limit=1)
         if module and module.state not in ("uninstalled", "uninstallable"):
             print(f"Desinstalando módulo '{args.name}' (state actual: {module.state})...")
-            module.button_immediate_uninstall()
-            cr.commit()
+            try:
+                module.button_immediate_uninstall()
+                cr.commit()
+            except Exception as exc:
+                cr.rollback()
+                print(
+                    f"Error: Odoo rechazó desinstalar '{args.name}': {exc}\n"
+                    f"  Si el mensaje menciona otra operación de módulo en curso, corré "
+                    f"'make update-module module=<el-que-esté-atascado>' para destrabarlo y reintentá."
+                )
+                sys.exit(1)
         else:
             print(f"Módulo '{args.name}' no está instalado en DB (o no existe registro) — salto la desinstalación.")
 

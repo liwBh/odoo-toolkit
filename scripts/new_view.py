@@ -286,10 +286,24 @@ def main():
         try:
             Model = env[args.model]
         except KeyError:
-            print(
-                f"Error: modelo '{args.model}' no existe en el registry "
-                f"(¿está definido en {app_dir}/models/ y el módulo está instalado?)"
-            )
+            cr.execute("SELECT state FROM ir_module_module WHERE name = %s", (args.module,))
+            row = cr.fetchone()
+            if row is None:
+                print(
+                    f"Error: el módulo '{args.module}' no existe en ir_module_module — nunca se instaló.\n"
+                    f"  Corré: make install-module module={args.module}"
+                )
+            elif row[0] != "installed":
+                print(
+                    f"Error: el módulo '{args.module}' está en estado '{row[0]}', no instalado.\n"
+                    f"  Corré: make install-module module={args.module}"
+                )
+            else:
+                print(
+                    f"Error: modelo '{args.model}' no existe en el registry "
+                    f"(módulo '{args.module}' sí está instalado — revisá que "
+                    f"{app_dir}/models/__init__.py importe el archivo donde está definido '{args.model}')"
+                )
             sys.exit(1)
         label = Model._description or args.model
 

@@ -2,6 +2,15 @@
 
 ## Índice
 
+- [Guía rápida (TL;DR)](#guía-rápida-tldr)
+- [Parte A — El Toolkit](#parte-a--el-toolkit)
+  - A.1 [Qué es y cómo conectarlo](#a1-qué-es-y-cómo-conectarlo)
+  - A.2 [Tabla de comandos](#a2-tabla-de-comandos)
+- [Parte B — Uso diario](#parte-b--uso-diario)
+  - B.1 [Proyecto nuevo — secuencia completa](#b1-proyecto-nuevo--secuencia-completa)
+  - B.2 [Día a día](#b2-día-a-día)
+- [Parte C — Referencia de Odoo](#parte-c--referencia-de-odoo)
+
 1. [Instalación y Setup](#1-instalación-y-setup)
    - 1.1 [Clonar repositorio](#11-clonar-repositorio)
    - 1.2 [Entorno virtual e instalar dependencias (manual)](#12-entorno-virtual-e-instalar-dependencias-manual)
@@ -15,6 +24,7 @@
    - 3.2 [make run / stop / restart](#32-make-run--stop--restart)
    - 3.3 [make dev — auto `-u` + restart al guardar](#33-make-dev--auto--u--restart-al-guardar)
    - 3.4 [Modo Desarrollador (Developer Mode)](#34-modo-desarrollador-developer-mode)
+   - 3.5 [Livereload — extensión de navegador (opcional)](#35-livereload--extensión-de-navegador-opcional)
 4. [Estructura y Anatomía de un Módulo](#4-estructura-y-anatomía-de-un-módulo)
    - 4.1 [Estructura de carpetas](#41-estructura-de-carpetas)
    - 4.2 [`__manifest__.py`](#42-__manifest__py)
@@ -90,6 +100,119 @@
     - 16.12 [useService("orm") — consultas desde el front](#1612-useserviceorm--consultas-desde-el-front)
 
 ---
+
+## Guía rápida (TL;DR)
+
+Proyecto nuevo, ya conocés Odoo, solo querés arrancar:
+
+```bash
+odoo-toolkit/link.sh /ruta/al/proyecto-odoo   # o copiar Makefile/Apuntes.md/scripts a mano
+cd /ruta/al/proyecto-odoo
+make setup
+make init-config db_name=mi_db admin_passwd=Admin1234
+make init-db
+make install
+make dev
+```
+
+Todo lo demás en este documento es detalle: comandos completos en Parte A,
+flujo de trabajo en Parte B, y la referencia de conceptos de Odoo en Parte C.
+
+---
+
+## Parte A — El Toolkit
+
+### A.1 Qué es y cómo conectarlo
+
+`odoo-toolkit` es un kit reusable (Makefile + scripts + estos apuntes) para
+proyectos Odoo — no es un proyecto en sí. Se conecta a un checkout de Odoo
+existente por symlink (mismo filesystem):
+
+```bash
+odoo-toolkit/link.sh /ruta/al/proyecto-odoo
+```
+
+Crea `Makefile`, `Apuntes.md` y `scripts/` como symlinks dentro del proyecto.
+Falla si alguno ya existe como archivo real (no pisa trabajo existente sin
+querer). Para trabajo en equipo, mejor copia manual (autocontenido, no
+depende de la ruta relativa al toolkit) — ver `README.md` del toolkit.
+
+### A.2 Tabla de comandos
+
+| Comando | Qué hace |
+|---|---|
+| `make init-config db_name=... [force=1]` | Crear `odoo.conf` (ver [1.4](#14-configuración--odooconf)) |
+| `make setup` | Crear venv e instalar dependencias |
+| `make run` | Iniciar Odoo |
+| `make stop` | Detener Odoo |
+| `make restart` | Reiniciar Odoo |
+| `make dev` | Auto `-i`/`-u` + restart al guardar (ver [3.3](#33-make-dev--auto--u--restart-al-guardar)) |
+| `make init-db` | Inicializar DB con `base` |
+| `make reset-db` | Borrar y recrear DB |
+| `make sync-modules` | Agregar a `modules.txt` módulos custom no listados |
+| `make new-module name=... description=... category=...` | Crear módulo nuevo (scaffold) |
+| `make new-view model=... module=... [editable=1]` | Crear/actualizar list+form para un modelo |
+| `make remove-view model=... module=...` | Borrar vista(s) generadas de un modelo |
+| `make remove-module name=... [yes=1]` | Desinstalar y borrar un módulo (destructivo) |
+| `make install` | Instalar módulos custom (+ actualiza los que ya estaban) |
+| `make install-module module=...` | Instalar un módulo puntual (+ actualiza si ya estaba) |
+| `make update-module module=...` | Actualizar un módulo puntual |
+| `make trans-loadlang [lang=...]` | Instalar idioma(s) en la DB |
+| `make trans-export [lang=...]` | Exportar `.pot`/`.po` (pisa lo existente) |
+| `make trans-sync lang=...` | Actualizar `.po` preservando traducciones (cubre módulo nuevo y existente) |
+| `make trans-import module=... lang=... [overwrite=1]` | Importar `.po` de ese módulo a la DB |
+| `make create-user name=... login=... password=...` | Crear usuario normal |
+| `make create-admin name=... login=... password=...` | Crear usuario admin |
+| `make change-password login=... password=...` | Cambiar password |
+| `make shell` | Abrir shell interactivo |
+| `make status` | Panorama rápido: `odoo.conf`, venv, server, DB, estado de cada módulo de `modules.txt` |
+| `make port` | Ver proceso en puerto 8069 |
+| `make help` | Ver esta lista desde la terminal |
+
+Detalle de cada uno (parámetros, ejemplos, gotchas) en Parte C — el índice al
+inicio del documento linkea directo a cada sección.
+
+---
+
+## Parte B — Uso diario
+
+### B.1 Proyecto nuevo — secuencia completa
+
+```bash
+odoo-toolkit/link.sh /ruta/al/proyecto-odoo
+cd /ruta/al/proyecto-odoo
+make setup
+make init-config db_name=mi_db db_user=mi_user db_password=pass admin_passwd=Admin1234
+make init-db          # instala `base` — sin esto, cualquier request da KeyError: 'ir.http'
+make install          # instala TODOS los módulos custom de modules.txt (nuevo o no)
+make dev
+```
+
+Si `modules.txt` no existe todavía o está vacío, `make dev` igual arranca el
+server (sin nada que vigilar) — no hace falta tener un módulo custom para
+levantar Odoo por primera vez.
+
+### B.2 Día a día
+
+| Hiciste esto... | Con `make dev` corriendo | Sin `make dev` corriendo |
+|---|---|---|
+| Editaste `.py`/`.xml`/etc. de un módulo ya instalado | Se aplica solo (`-i`/`-u` + restart al guardar) | `make install` |
+| Agregaste un modelo/campo nuevo en un módulo ya instalado | Igual — el watcher corre `-i`/`-u` sobre todos los módulos de `modules.txt` | `make install-module module=X` |
+| Agregaste un módulo nuevo a `modules.txt` | Se detecta solo, se instala y se empieza a vigilar — no hace falta reiniciar `make dev` | `make install` |
+| `make new-view` dice que el modelo no existe en el registry | El mensaje te dice si es el módulo (no instalado) o el `__init__.py` (falta el import) — seguí esa pista | — |
+| Necesitás una vista para un modelo ya escrito a mano | `make new-view model=... module=...` | — |
+| Necesitás borrar una vista generada | `make remove-view model=... module=...` | — |
+| Necesitás un usuario de prueba | `make create-user ...` / `make create-admin ...` | — |
+| Agregaste texto traducible | Ver [Traducciones](#12-traducciones-i18n) | — |
+
+Errores comunes (mensaje exacto + causa + fix) en [11.2](#112-errores-comunes).
+
+---
+
+## Parte C — Referencia de Odoo
+
+Conceptos, comandos con detalle completo y patrones de código. Consultá
+puntual por sección — no hace falta leer de corrido.
 
 ## 1. Instalación y Setup
 
@@ -184,13 +307,14 @@ Iniciar servidor normal:
 ```bash
 make init-db      # -i base --stop-after-init (una sola vez, DB vacía)
 make reset-db     # dropdb + createdb + init-db
-make install      # -i <módulos de modules.txt> --stop-after-init
-make update       # -u <módulos de modules.txt> --stop-after-init
-make install-module module=nombre
-make update-module module=nombre
+make install      # -i <módulos de modules.txt> -u <módulos de modules.txt> --stop-after-init
+make install-module module=nombre   # -i <module> -u <module> --stop-after-init
+make update-module module=nombre    # -u <module> --stop-after-init
 ```
 
-> `CUSTOM_MODULES` (usado por `install`/`update`) se arma leyendo `modules.txt` — ver sección 9 sobre cómo se registran los módulos ahí.
+> `CUSTOM_MODULES` (usado por `install`) se arma leyendo `modules.txt` — ver sección 9 sobre cómo se registran los módulos ahí.
+
+> `install` manda la misma lista a `-i` **y** `-u` en un solo comando: `-i` instala los que falten, `-u` actualiza los que ya estaban (campo/modelo nuevo agregado a un módulo que ya estaba instalado). Antes había que adivinar cuál de los dos correr — ahora `make install` cubre ambos casos siempre.
 
 ---
 
@@ -237,17 +361,19 @@ make restart   # stop + run
 make dev
 ```
 
-Automatiza el ciclo manual de "edito código → paro server → `-u` → levanto server otra vez". Watchea (vía `watchdog`, instalado por `make setup`) la carpeta de cada módulo listado en `modules.txt`, resuelta vía `addons_path` (no escanea `extra_addons/` completo — un módulo en `modules.txt` que no se encuentre en ninguna entrada de `addons_path` se avisa por consola y se ignora), extensiones `.py/.xml/.csv/.po/.css/.scss/.js`, y en cada cambio real:
+Automatiza el ciclo manual de "edito código → paro server → `-i`/`-u` → levanto server otra vez". Watchea (vía `watchdog`, instalado por `make setup`) la carpeta de cada módulo listado en `modules.txt`, resuelta vía `addons_path` (no escanea `extra_addons/` completo — un módulo en `modules.txt` que no se encuentre en ninguna entrada de `addons_path` se avisa por consola y se ignora), extensiones `.py/.xml/.csv/.po/.css/.scss/.js`, y en cada cambio real:
 
 1. Debounce ~1.5s (coalesce guardados múltiples de un mismo save).
 2. Detiene el server.
-3. Corre `-u <módulos de modules.txt> --stop-after-init`.
+3. Corre `-i <módulos de modules.txt> -u <módulos de modules.txt> --stop-after-init`.
 4. Si falla (código roto, exit ≠ 0) — **no levanta el server**, deja el traceback visible y espera el próximo guardado.
 5. Si OK — levanta el server de nuevo con `--dev=access,qweb,xml` (sin `reload`, para no competir con el autoreload nativo de Odoo que se activa solo por tener `watchdog` instalado).
 
 Cubre lo que un restart simple no cubre: cambios de vistas XML, security CSV y campos de modelo (todos requieren `-u`, no solo restart). Cambios de lógica Python pura también entran por este mismo camino (no hay hot-reload sin `-u`/restart en este setup). `.po` está incluido porque las traducciones de mensajes Python (`_()`) se cachean en memoria y solo se refrescan con un reload del registry — ver 12.3. `.css`/`.scss`/`.js` están para módulos con assets propios (`static/src/...`).
 
-> **No instala módulos nuevos.** `-u` solo actualiza módulos ya instalados — un módulo recién creado con `make new-module` (ver 9.1) necesita un `make install-module module=<nombre>` manual una vez; recién ahí `make dev` lo toma en cada guardado subsecuente.
+Si `modules.txt` está vacío o no existe, `make dev` igual arranca el server (sin `-i`/`-u`, sin nada que vigilar) — útil para levantar Odoo por primera vez en un proyecto sin módulos custom todavía.
+
+**`modules.txt` se vigila en caliente.** Agregar o quitar una línea ahí (mientras `make dev` sigue corriendo) dispara solo: recalcula qué carpetas vigilar, instala/actualiza el módulo nuevo con `-i`/`-u`, y lo suma al watch — sin tener que parar y volver a correr `make dev`. Un módulo recién creado con `make new-module` (ver 9.1) solo necesita agregarse a `modules.txt` — ya no hace falta un `make install-module` manual aparte para que el watcher lo tome.
 
 **Para detenerlo del todo: `Ctrl+C` en su propia terminal**, no `make stop` desde otra. `make stop` solo mata el proceso `odoo-bin` (el server) — el watcher (`dev_watch.py`) sigue vivo esperando cambios, y si guardás algo después lo vuelve a levantar solo, sin que se lo hayas pedido. `Ctrl+C` sí dispara el handler que frena el server limpio y corta el watcher entero.
 
@@ -307,6 +433,18 @@ Cubre lo que un restart simple no cubre: cambios de vistas XML, security CSV y c
 | `reload` | Reinicia el proceso al detectar cambios en `.py` (requiere `watchdog` o `inotify` instalado — ver 3.3 sobre por qué `make dev` lo excluye) |
 | `qweb` | No cachea templates QWeb |
 | `access` | Páginas de error con detalle técnico |
+
+### 3.5 Livereload — extensión de navegador (opcional)
+
+`make dev` ya reinicia el server solo al guardar — lo único que sigue siendo manual es apretar F5 en el navegador para ver el cambio. La extensión en `browser-extension/` (raíz del toolkit) cierra ese último paso: refresca la pestaña de Odoo sola en cuanto `make dev` termina de aplicar un `-i`/`-u` y confirma que el server nuevo ya responde.
+
+**100% opcional** — nadie nota diferencia si no la instala, `make dev`/`make run` funcionan igual con o sin ella. No toca nada del lado servidor ni de la DB: `dev_watch.py` ya expone un sidecar SSE en `http_port + 1` (ver 3.3) esté alguien escuchando o no; la extensión solo se conecta a ese stream y llama `tabs.reload()` cuando llega el evento.
+
+- Instalación (una vez por navegador, Chromium y Firefox): cargar la carpeta `browser-extension/` como extensión sin empaquetar (`chrome://extensions` → Modo desarrollador → Cargar descomprimida; en Firefox, complemento temporal vía `about:debugging`).
+- Configuración (página de Opciones de la extensión): host, puerto de Odoo, puerto del sidecar (default: puerto Odoo + 1) — un proyecto a la vez, cambiar de proyecto es solo reconfigurar, no reinstalar.
+- Vale la pena si iterás mucho en vistas/frontend (menos fricción por guardado) — si preferís controlar vos cuándo recargar (ej. estás a mitad de llenar un form de prueba), quizás no.
+
+Detalle completo (arquitectura, troubleshooting, por qué `fetch()` en vez de `EventSource`, diferencias Chrome/Firefox) en `browser-extension/README.md`.
 
 ---
 
@@ -1518,7 +1656,7 @@ El grupo de seguridad (`ir.module.category` → `res.groups.privilege` → `res.
 
 `base.user_admin` queda precargado como miembro del grupo (`user_ids` en la definición del `res.groups`, ver 8.2) — así el admin no se bloquea a sí mismo apenas instala el módulo nuevo. **Cualquier otro usuario necesita que lo actives a mano** desde Ajustes → Usuarios (ver 8.2) — no hay forma de automatizarlo para usuarios arbitrarios, es a propósito.
 
-También agrega el módulo a `modules.txt` (usado por `make install` / `make update`, ver sección 2.2).
+También agrega el módulo a `modules.txt` (usado por `make install`, ver sección 2.2).
 
 Siguiente paso:
 ```bash
@@ -1536,7 +1674,7 @@ make new-view model=courses.students module=students
 make new-view model=courses.students module=students editable=1   # O2M embebidos editables en vez de solo-lectura
 ```
 
-- `model` — nombre técnico del modelo (`_name`), ya tiene que existir en el registry (o sea, el módulo instalado con ese modelo cargado — corré `-u` antes si acabás de crear el modelo).
+- `model` — nombre técnico del modelo (`_name`), ya tiene que existir en el registry (o sea, el módulo instalado con ese modelo cargado — corré `make install`/`make update-module` antes si acabás de crear el modelo). Si falla, el mensaje distingue la causa: módulo nunca instalado (`ir_module_module` no tiene la fila), módulo en estado distinto de `installed` (te da el estado real), o módulo instalado pero el modelo no aparece — este último caso casi siempre es que `models/__init__.py` no importa el archivo nuevo.
 - `module` — nombre del módulo, ubicado vía `addons_path` (no asume `extra_addons/`, ver nota al inicio de la sección 9). Tiene que existir `menu_<module>` en `views/view_menu.xml` — si no existe, el comando falla en vez de inventar un menú nuevo.
 - `editable` — opcional. Sin esto, los `One2many` embebidos en el form salen solo-lectura (`create="false" edit="false" delete="false"`, mismo patrón que 6.2).
 
@@ -1595,7 +1733,7 @@ Pide confirmación escribiendo el nombre del módulo (salvo `yes=1`). El orden i
 make sync-modules
 ```
 
-`modules.txt` no viene versionado (o puede quedar vacío) — si clonás un proyecto existente con módulos custom ya en el repo, `make install`/`make update`/`make dev` no ven nada hasta que `modules.txt` los liste. Este comando escanea el dir custom (última entrada de `addons_path`, mismo criterio que 9.1) buscando carpetas con `__manifest__.py`, y agrega a `modules.txt` las que todavía no estén listadas.
+`modules.txt` no viene versionado (o puede quedar vacío) — si clonás un proyecto existente con módulos custom ya en el repo, `make install`/`make dev` no ven nada hasta que `modules.txt` los liste. Este comando escanea el dir custom (última entrada de `addons_path`, mismo criterio que 9.1) buscando carpetas con `__manifest__.py`, y agrega a `modules.txt` las que todavía no estén listadas.
 
 **Aditivo — nunca borra ni reordena.** Si ya corriste esto (o `modules.txt` ya tenía todo a mano), rerun no duplica nada. Líneas comentadas (`#módulo`) cuentan como "ya listado" y no se tocan.
 
@@ -1778,17 +1916,16 @@ Estos (marcados `#. odoo-python` en el `.po`) **no se guardan en la DB** — Odo
 | Comando | Qué hace |
 |---|---|
 | `make trans-loadlang [lang="es_419 en_US"]` | Instala idioma(s) en la DB. Sin `lang`, instala `en_US` + `es_419` (default del proyecto). Se corre una sola vez por idioma. |
-| `make trans-scaffold lang=es_419` | Crea el `.po` de ese idioma para los módulos que todavía no lo tienen. No pisa uno que ya existe. |
 | `make trans-export lang=es_419` | Regenera el `.po` desde cero. **Bug real de Odoo:** para mensajes de Python (`#. odoo-python`) siempre los deja en blanco, aunque ya estuvieran traducidos — `odoo/cli/i18n.py` abre el archivo destino en `'wb'` (lo trunca) antes de terminar de leerlo para saber qué ya estaba traducido, y como destino y fuente son el mismo archivo, lee vacío. No usar si el módulo tiene mensajes de Python traducidos — usar `trans-sync` en su lugar. |
-| `make trans-sync lang=es_419` | Igual que `trans-export`, pero exporta primero a un archivo temporal y **preserva** los `msgstr` que ya estaban traducidos (evita el bug de arriba). Es el comando recomendado para actualizar un `.po` existente. |
-| `make trans-import lang=es_419 [overwrite=1]` | Carga el `.po` a la DB. Sin `overwrite`, solo completa lo que todavía no tiene traducción — no pisa lo ya traducido. Solo afecta términos tipo `model`/`model_terms` (labels, help) — los de Python (`#. odoo-python`) los ignora, ver nota en 12.1. |
+| `make trans-sync lang=es_419` | Igual que `trans-export`, pero exporta primero a un archivo temporal y **preserva** los `msgstr` que ya estaban traducidos (evita el bug de arriba). Sirve tanto para crear el `.po` la primera vez (si no existe, lo crea limpio) como para actualizarlo después — es el único comando que hace falta para mantener el `.po` al día. |
+| `make trans-import module=students lang=es_419 [overwrite=1]` | Carga el `.po` de ese módulo a la DB. Sin `overwrite`, solo completa lo que todavía no tiene traducción — no pisa lo ya traducido. Solo afecta términos tipo `model`/`model_terms` (labels, help) — los de Python (`#. odoo-python`) los ignora, ver nota en 12.1. |
 
 ### 12.2 Setup inicial (primera vez en el proyecto)
 
 1. `make trans-loadlang` — instala `en_US` y `es_419` en la DB.
-2. `make trans-scaffold lang=es_419` — crea `i18n/es_419.po` para cada módulo de `modules.txt`.
+2. `make trans-sync lang=es_419` — crea `i18n/es_419.po` para cada módulo de `modules.txt` (no existe todavía, así que sale limpio — mismo comando que después se usa para actualizar).
 3. Abrir el `.po` generado y completar los `msgstr` que quieras traducir (no hace falta completar todos).
-4. `make trans-import lang=es_419` — carga las traducciones a la DB (labels/help; los mensajes de Python no necesitan este paso, ver 12.1).
+4. `make trans-import module=<nombre> lang=es_419` — carga las traducciones de ese módulo a la DB (labels/help; los mensajes de Python no necesitan este paso, ver 12.1). Repetir por cada módulo.
 5. Probar: cambiar el idioma del usuario (Preferencias → Idioma) y verificar que aparecen traducidos.
 
 > A partir de acá, para actualizar el `.po` (agregar términos nuevos sin perder lo ya traducido) usar siempre `make trans-sync`, no `make trans-export` — ver la nota del bug en la tabla de comandos.
@@ -1802,12 +1939,12 @@ Cada vez que agregás un `string=` nuevo en un modelo/vista, o un mensaje envuel
 3. `make trans-sync lang=es_419` — trae el término nuevo al `.po` (con `msgstr` vacío), preservando todo lo que ya estaba traducido (**no** usar `trans-export` acá, ver 12.1). Si se corre antes de que termine el paso 2, el término todavía no existe en la DB y no aparece.
 4. Completar el `msgstr` del término nuevo en el `.po`.
 5. Según el tipo de término (ver 12.1):
-   - **Label de campo/vista** (`string=`): `make trans-import lang=es_419` — lo carga a la DB.
+   - **Label de campo/vista** (`string=`): `make trans-import module=<nombre> lang=es_419` — lo carga a la DB.
    - **Mensaje de Python** (`_()`, comentario `#. odoo-python`): no hace falta `trans-import` — con guardar el `.po` alcanza (`make dev` lo recarga solo; si no, `make update-module module=<nombre>`).
 
 Repetir 2-5 cada vez que se agregan strings traducibles nuevos.
 
-**Detalle a tener en cuenta si editás el `.po` a mano:** cada entrada necesita el comentario `#. module: <nombre>` arriba del `msgid` (Odoo lo agrega solo al exportar/scaffoldear) — si armás una entrada nueva vos y te olvidás esa línea, el `import`/`update-module` tira `AttributeError`. Por eso el flujo de arriba siempre parte de un `.po` generado por `trans-export`/`trans-scaffold`, nunca escrito desde cero a mano.
+**Detalle a tener en cuenta si editás el `.po` a mano:** cada entrada necesita el comentario `#. module: <nombre>` arriba del `msgid` (Odoo lo agrega solo al exportar/sincronizar) — si armás una entrada nueva vos y te olvidás esa línea, el `import`/`update-module` tira `AttributeError`. Por eso el flujo de arriba siempre parte de un `.po` generado por `trans-export`/`trans-sync`, nunca escrito desde cero a mano.
 
 **Error más común al probar traducciones nuevas:** instalar/tener el idioma en la DB no cambia el idioma de usuarios ya existentes — cada `res.users` tiene su propio campo `lang`, sigue en el idioma que tenía hasta que se cambie a mano (Preferencias → Idioma, o `env['res.users'].write({'lang': 'es_419'})`).
 

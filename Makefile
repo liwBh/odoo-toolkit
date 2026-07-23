@@ -3,6 +3,7 @@ PYTHON = .venv/bin/python
 ODOO = $(PYTHON) odoo-bin
 CONF = -c odoo.conf
 DB = $(shell grep -E '^\s*db_name' odoo.conf 2>/dev/null | tail -1 | cut -d'=' -f2 | tr -d ' ')
+DB_USER = $(shell grep -E '^\s*db_user' odoo.conf 2>/dev/null | tail -1 | cut -d'=' -f2 | tr -d ' ')
 CUSTOM_MODULES = $(shell grep -v '^\s*#' modules.txt | grep -v '^\s*$$' | tr '\n' ',' | sed 's/,$$//')
 CUSTOM_MODULES_SPACED = $(shell grep -v '^\s*#' modules.txt | grep -v '^\s*$$' | tr '\n' ' ')
 
@@ -45,8 +46,8 @@ init-db:
 	$(ODOO) $(CONF) -i base --stop-after-init
 
 reset-db: stop
-	dropdb -U user_odoo $(DB) || true
-	createdb -U user_odoo $(DB)
+	dropdb -U $(DB_USER) $(DB) || true
+	createdb -U $(DB_USER) $(DB)
 	$(MAKE) init-db
 
 # ── Módulos ───────────────────────────────────────────────────────────────────
@@ -80,14 +81,13 @@ remove-view:
 remove-module:
 	@$(PYTHON) scripts/remove_module.py --name "$(name)" $(if $(yes),--yes,)
 
+# -i instala lo que falte, -u actualiza lo ya instalado (campos/modelos nuevos
+# en un módulo que ya estaba instalado) — un solo comando cubre ambos casos.
 install:
-	$(ODOO) $(CONF) -i $(CUSTOM_MODULES) --stop-after-init
-
-update:
-	$(ODOO) $(CONF) -u $(CUSTOM_MODULES) --stop-after-init
+	$(ODOO) $(CONF) -i $(CUSTOM_MODULES) -u $(CUSTOM_MODULES) --stop-after-init
 
 install-module:
-	$(ODOO) $(CONF) -i $(module) --stop-after-init
+	$(ODOO) $(CONF) -i $(module) -u $(module) --stop-after-init
 
 update-module:
 	$(ODOO) $(CONF) -u $(module) --stop-after-init
@@ -111,23 +111,12 @@ trans-sync:
 	@if [ -z "$(lang)" ]; then echo "Uso: make trans-sync lang=es_419"; exit 1; fi
 	$(PYTHON) scripts/trans_sync.py odoo.conf $(DB) $(lang) $(CUSTOM_MODULES_SPACED)
 
-# make trans-scaffold lang=es_419   — crea el .po de lang SOLO para módulos que
-# todavía no lo tienen (no pisa los existentes, a diferencia de trans-export)
-trans-scaffold:
-	@if [ -z "$(lang)" ]; then echo "Uso: make trans-scaffold lang=es_419"; exit 1; fi
-	@for mod in $(CUSTOM_MODULES_SPACED); do \
-		po="extra_addons/$$mod/i18n/$(lang).po"; \
-		if [ -f "$$po" ]; then \
-			echo "[trans-scaffold] $$po ya existe, no se toca"; \
-		else \
-			echo "[trans-scaffold] creando $$po"; \
-			$(PYTHON) odoo-bin i18n export $(CONF) -d $(DB) $$mod -l $(lang); \
-		fi; \
-	done
-
-# make trans-import lang=es_419 [overwrite=1]
+# make trans-import module=students lang=es_419 [overwrite=1]
 trans-import:
-	$(PYTHON) odoo-bin i18n import $(CONF) -d $(DB) extra_addons/students/i18n/$(lang).po -l $(lang) $(if $(overwrite),-w,)
+	@if [ -z "$(module)" ] || [ -z "$(lang)" ]; then echo "Uso: make trans-import module=nombre lang=es_419 [overwrite=1]"; exit 1; fi
+	@MODDIR="$$($(PYTHON) scripts/_addons.py find $(module))"; \
+	if [ -z "$$MODDIR" ]; then echo "Error: módulo '$(module)' no encontrado en addons_path"; exit 1; fi; \
+	$(PYTHON) odoo-bin i18n import $(CONF) -d $(DB) "$$MODDIR/i18n/$(lang).po" -l $(lang) $(if $(overwrite),-w,)
 
 # ── Usuarios ──────────────────────────────────────────────────────────────────
 
@@ -144,6 +133,10 @@ change-password:
 	$(PYTHON) scripts/manage_users.py change-password --login "$(login)" --password "$(password)"
 
 # ── Info ──────────────────────────────────────────────────────────────────────
+
+# make status — panorama rápido: odoo.conf, venv, server, DB, estado de módulos
+status:
+	@$(PYTHON) scripts/status.py
 
 port:
 	lsof -i :8069 || echo "Puerto 8069 libre"
@@ -167,23 +160,22 @@ help:
 	@echo "  make new-view model='' module='' [editable=1]     - Crear/actualizar list+form para un modelo"
 	@echo "  make remove-view model='' module=''               - Borrar vista(s) generadas de un modelo"
 	@echo "  make remove-module name='' [yes=1]                - Desinstalar y borrar un módulo (destructivo)"
-	@echo "  make install                                      - Instalar módulos custom"
-	@echo "  make update                                       - Actualizar módulos custom"
-	@echo "  make install-module module=nombre                 - Instalar un módulo"
+	@echo "  make install                                      - Instalar módulos custom (+ actualiza los que ya estaban)"
+	@echo "  make install-module module=nombre                 - Instalar un módulo (+ actualiza si ya estaba)"
 	@echo "  make update-module module=nombre                  - Actualizar un módulo"
 	@echo "  make trans-loadlang [lang='']                      - Instalar idioma(s) en la DB (default: en_US es_419)"
 	@echo "  make trans-export [lang='']                       - Exportar .pot (o .po de lang) a i18n/ (pisa lo existente)"
 	@echo "  make trans-sync lang=''                            - Actualizar .po de lang preservando lo ya traducido"
-	@echo "  make trans-scaffold lang=''                        - Crear .po de lang solo donde no existe (no pisa)"
-	@echo "  make trans-import lang='' [overwrite=1]            - Importar .po de lang a la DB"
+	@echo "  make trans-import module='' lang='' [overwrite=1] - Importar .po de lang a la DB"
 	@echo "  make create-user name='' login='' password=''     - Crear usuario normal"
 	@echo "  make create-admin name='' login='' password=''    - Crear usuario admin"
 	@echo "  make change-password login='' password=''         - Cambiar password"
 	@echo "  make shell                                        - Abrir shell interactivo"
+	@echo "  make status                                       - Panorama rápido: conf, venv, server, DB, módulos"
 	@echo "  make port                                         - Ver proceso en puerto 8069"
 	@echo ""
 
 .PHONY: init-config setup run stop restart dev init-db reset-db sync-modules new-module new-view remove-view remove-module \
-        install update install-module update-module trans-loadlang trans-export trans-sync trans-scaffold \
+        install install-module update-module trans-loadlang trans-export trans-sync \
         trans-import create-user create-admin \
-        change-password port shell help
+        change-password status port shell help

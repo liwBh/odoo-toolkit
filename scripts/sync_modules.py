@@ -66,6 +66,7 @@ def main():
     skipped = set(found) - set(missing)
     if skipped:
         print(f"Ya listados (sin tocar): {', '.join(sorted(skipped))}")
+    print("Si 'make dev' está corriendo, los instala solo. Si no, corré 'make install'.")
 
 
 if __name__ == "__main__":

@@ -8,9 +8,11 @@ Kit reusable para gestionar proyectos de desarrollo Odoo: notas, `Makefile` y sc
 odoo-toolkit/
 ├── Apuntes.md          # notas de desarrollo Odoo (modelos, vistas, seguridad, comandos)
 ├── Makefile            # comandos make (setup, run, init-db, new-module, init-config, ...)
-└── scripts/
-    ├── init_config.sh  # genera odoo.conf
-    └── new_module.sh   # scaffold de módulo nuevo
+├── scripts/
+│   ├── init_config.sh  # genera odoo.conf
+│   └── new_module.sh   # scaffold de módulo nuevo
+└── browser-extension/  # (opcional) livereload — refresca el navegador solo en cada
+                         # `make dev` exitoso, ver browser-extension/README.md
 ```
 
 ## Instalación

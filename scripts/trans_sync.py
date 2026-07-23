@@ -17,10 +17,11 @@ PYTHON = ROOT / ".venv" / "bin" / "python"
 
 
 def sync_module(conf, db, lang, module):
+    """True si sincronizó bien, False si falló (módulo no encontrado o export roto)."""
     app_dir = find_module_dir(module)
     if not app_dir:
-        print(f"[trans-sync] módulo '{module}' no encontrado en addons_path — salteado")
-        return
+        print(f"[trans-sync] Error: módulo '{module}' no encontrado en addons_path — salteado")
+        return False
     po_path = app_dir / "i18n" / f"{lang}.po"
 
     old_translations = {}
@@ -29,13 +30,17 @@ def sync_module(conf, db, lang, module):
         old_translations = {entry.msgid: entry.msgstr for entry in old if entry.msgstr}
 
     with tempfile.NamedTemporaryFile(suffix=".po") as tmp:
-        subprocess.run(
-            [
-                str(PYTHON), "odoo-bin", "i18n", "export",
-                "-c", conf, "-d", db, module, "-l", lang, "-o", tmp.name,
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    str(PYTHON), "odoo-bin", "i18n", "export",
+                    "-c", conf, "-d", db, module, "-l", lang, "-o", tmp.name,
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            print(f"[trans-sync] Error: falló el export de '{module}' (exit {exc.returncode}) — ¿está instalado el módulo y cargado el idioma '{lang}'?")
+            return False
         fresh = polib.pofile(tmp.name)
 
     restored = 0
@@ -47,6 +52,7 @@ def sync_module(conf, db, lang, module):
     po_path.parent.mkdir(parents=True, exist_ok=True)
     fresh.save(str(po_path))
     print(f"[trans-sync] {po_path} — {restored} traducciones existentes preservadas")
+    return True
 
 
 def main():
@@ -54,8 +60,9 @@ def main():
         print("Uso: trans_sync.py <conf> <db> <lang> <modulo> [<modulo> ...]")
         sys.exit(1)
     conf, db, lang, *modules = sys.argv[1:]
-    for module in modules:
-        sync_module(conf, db, lang, module)
+    ok = all([sync_module(conf, db, lang, module) for module in modules])
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

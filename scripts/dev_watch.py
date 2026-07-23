@@ -175,9 +175,9 @@ def apply_changes(reason):
         if mods:
             print(f"{YELLOW}{BOLD}[dev] ⏳ ACTUALIZANDO ({reason}) — deteniendo server...{RESET}")
             stop_server()
-            print(f"{YELLOW}[dev] aplicando -u {','.join(mods)}{RESET}")
+            print(f"{YELLOW}[dev] aplicando -i/-u {','.join(mods)}{RESET}")
             result = subprocess.run(
-                [str(PYTHON), str(ODOO_BIN), "-c", str(CONF), "-u", ",".join(mods), "--stop-after-init"],
+                [str(PYTHON), str(ODOO_BIN), "-c", str(CONF), "-i", ",".join(mods), "-u", ",".join(mods), "--stop-after-init"],
                 cwd=str(ROOT),
             )
             if result.returncode != 0:
@@ -216,6 +216,40 @@ class DebouncedHandler(FileSystemEventHandler):
             self._schedule(reason)
 
 
+class ModulesFileHandler(FileSystemEventHandler):
+    """Vigila modules.txt (no recursivo, en ROOT). Al cambiar, re-resuelve
+    module_dirs() y ajusta los watches en caliente — agregar/quitar un módulo
+    de modules.txt no requiere reiniciar make dev."""
+
+    def __init__(self, observer):
+        self.observer = observer
+        self.watches = {}  # str(dir) -> ObservedWatch
+
+    def sync_watches(self):
+        dirs = module_dirs()
+        current = {str(d): d for d in dirs}
+        for path in set(self.watches) - set(current):
+            self.observer.unschedule(self.watches.pop(path))
+            print(f"[dev] dejó de vigilar {path}")
+        for path, d in current.items():
+            if path not in self.watches:
+                self.watches[path] = self.observer.schedule(DebouncedHandler(), str(d), recursive=True)
+                print(f"[dev] ahora vigilando {path}")
+        return dirs
+
+    def on_any_event(self, event):
+        if event.event_type not in ("created", "modified", "deleted", "moved"):
+            return
+        path = Path(getattr(event, "dest_path", None) or event.src_path)
+        if path != MODULES_FILE:
+            return
+        self.sync_watches()
+        with lock:
+            timer = threading.Timer(DEBOUNCE_SECONDS, apply_changes, args=("modules.txt actualizado",))
+            timer.daemon = True
+            timer.start()
+
+
 def main():
     dirs = module_dirs()
     if not dirs:
@@ -225,14 +259,17 @@ def main():
     apply_changes("arranque inicial")
 
     observer = Observer()
+    modules_file_handler = ModulesFileHandler(observer)
     for d in dirs:
-        observer.schedule(DebouncedHandler(), str(d), recursive=True)
+        modules_file_handler.watches[str(d)] = observer.schedule(DebouncedHandler(), str(d), recursive=True)
+    observer.schedule(modules_file_handler, str(ROOT), recursive=False)
     observer.start()
     if dirs:
         watched = ", ".join(str(d) for d in dirs)
         print(f"[dev] watching {watched} (.py/.xml/.csv/.po/.css/.scss/.js) — Ctrl+C para salir")
     else:
         print("[dev] sin módulos vigilados (modules.txt vacío) — server corriendo. Ctrl+C para salir")
+    print("[dev] modules.txt también vigilado — agregar/quitar módulos ahí se aplica sin reiniciar make dev")
 
     try:
         while True:
