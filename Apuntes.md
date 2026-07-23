@@ -166,6 +166,7 @@ depende de la ruta relativa al toolkit) — ver `README.md` del toolkit.
 | `make change-password login=... password=...` | Cambiar password |
 | `make shell` | Abrir shell interactivo |
 | `make status` | Panorama rápido: `odoo.conf`, venv, server, DB, estado de cada módulo de `modules.txt` |
+| `make lint` | Chequeo rápido y manual: `.py` (`ruff`), `.xml` (bien-formado), `.js`/`.css` (`biome` vía `npx`, necesita Node) |
 | `make port` | Ver proceso en puerto 8069 |
 | `make help` | Ver esta lista desde la terminal |
 

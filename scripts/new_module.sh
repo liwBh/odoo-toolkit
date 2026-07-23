@@ -39,9 +39,9 @@ mkdir -p "$DIR/models" "$DIR/views" "$DIR/security" "$DIR/controllers" "$DIR/wiz
          "$DIR/static/src/js" "$DIR/static/src/css" "$DIR/static/src/xml"
 
 cat > "$DIR/__init__.py" <<EOF
-from . import models
-from . import controllers
-from . import wizards
+from . import models as models
+from . import controllers as controllers
+from . import wizards as wizards
 EOF
 
 cat > "$DIR/__manifest__.py" <<EOF
@@ -71,7 +71,7 @@ cat > "$DIR/__manifest__.py" <<EOF
 }
 EOF
 
-echo "from . import $MOD" > "$DIR/models/__init__.py"
+echo "from . import $MOD as $MOD" > "$DIR/models/__init__.py"
 
 touch "$DIR/controllers/__init__.py" "$DIR/wizards/__init__.py"
 

@@ -138,6 +138,12 @@ change-password:
 status:
 	@$(PYTHON) scripts/status.py
 
+# make lint — chequeo rápido (.py con ruff, .xml bien-formado, .js/.css con
+# biome vía npx) del código custom.
+# Manual, nunca se llama desde otro target. Instala ruff solo (una vez) si falta.
+lint:
+	@$(PYTHON) scripts/lint.py
+
 port:
 	lsof -i :8069 || echo "Puerto 8069 libre"
 
@@ -172,10 +178,11 @@ help:
 	@echo "  make change-password login='' password=''         - Cambiar password"
 	@echo "  make shell                                        - Abrir shell interactivo"
 	@echo "  make status                                       - Panorama rápido: conf, venv, server, DB, módulos"
+	@echo "  make lint                                         - Chequeo rápido .py (ruff) / .xml (bien-formado) / .js,.css (biome)"
 	@echo "  make port                                         - Ver proceso en puerto 8069"
 	@echo ""
 
 .PHONY: init-config setup run stop restart dev init-db reset-db sync-modules new-module new-view remove-view remove-module \
         install install-module update-module trans-loadlang trans-export trans-sync \
         trans-import create-user create-admin \
-        change-password status port shell help
+        change-password status lint port shell help

@@ -1,0 +1,18 @@
+# Config de make lint (scripts/lint.py). Vive acá, no en la raíz del proyecto,
+# porque scripts/ es lo que link.sh symlinkea — así viaja con el toolkit sin
+# tocar el proyecto ni link.sh.
+#
+# Solo las categorías que señalan bugs reales, no formato:
+#   F    pyflakes      — import/variable sin usar, nombre no definido
+#   T20  flake8-print  — print() olvidado en código
+#   RET  flake8-return — returns inconsistentes/redundantes
+# Fuera a propósito: E/W (pycodestyle, espacios/blank-lines), I (isort, orden
+# de imports), COM (coma final) — cosmético puro, sin riesgo de bug.
+[lint]
+select = ["F", "T20", "RET"]
+
+# Los __init__.py de Odoo importan submódulos por efecto secundario (registro
+# de modelos vía metaclass), no para usar el nombre — new_module.sh ya genera
+# esas líneas como "from . import X as X" (re-export explícito, idioma
+# reconocido por pyflakes) en vez de silenciar F401 en todo el archivo. Así
+# un import realmente sin usar en un __init__.py se sigue detectando.
