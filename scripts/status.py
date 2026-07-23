@@ -52,12 +52,13 @@ def main():
 
     if not CONF.exists():
         bad("odoo.conf no existe — corré: make init-config db_name=... admin_passwd=...")
-        db_name = db_user = db_host = db_port = http_port = None
+        db_name = db_user = db_password = db_host = db_port = http_port = None
     else:
         parser = configparser.ConfigParser()
         parser.read(CONF)
         db_name = parser.get("options", "db_name", fallback=None)
         db_user = parser.get("options", "db_user", fallback=None)
+        db_password = parser.get("options", "db_password", fallback=None)
         db_host = parser.get("options", "db_host", fallback="localhost")
         db_port = parser.get("options", "db_port", fallback="5432")
         http_port = parser.get("options", "http_port", fallback="8069")
@@ -80,7 +81,10 @@ def main():
 
     try:
         import psycopg2
-        conn = psycopg2.connect(dbname=db_name, user=db_user, host=db_host, port=db_port, connect_timeout=3)
+        conn = psycopg2.connect(
+            dbname=db_name, user=db_user, password=db_password,
+            host=db_host, port=db_port, connect_timeout=3,
+        )
     except Exception as exc:
         bad(f"DB '{db_name}' no accesible: {exc}")
         print("  Corré: make init-db (o make reset-db si ya existía y algo quedó mal)")
